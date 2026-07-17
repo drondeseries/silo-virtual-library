@@ -1,0 +1,20 @@
+{
+  "plugin_id": "com.yourusername.silo-virtual-library",
+  "version": "0.1.0",
+  "checksum": "__CHECKSUM__",
+  "silo_api_version": "v1",
+  "capabilities": [
+    {
+      "type": "http_routes.v1",
+      "id": "virtual-playback",
+      "display_name": "Virtual Playback",
+      "description": "Resolves aiostreams:// virtual paths into short-lived streaming URLs."
+    }
+  ],
+  "presentation": {
+    "display_name": "Silo Virtual Library",
+    "summary": "Zero-storage virtual playback backed by dynamic AIOStreams resolution.",
+    "publisher_name": "yourusername",
+    "source_url": "https://github.com/yourusername/silo-virtual-library"
+  }
+}
