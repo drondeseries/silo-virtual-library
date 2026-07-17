@@ -2,78 +2,152 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
-
-	"github.com/hashicorp/go-hclog"
 
 	pb "github.com/Silo-Server/silo-plugin-sdk/pkg/pluginproto/silo/plugin/v1"
 	publicmanifest "github.com/Silo-Server/silo-plugin-sdk/pkg/pluginsdk/manifest"
 	sdkruntime "github.com/Silo-Server/silo-plugin-sdk/pkg/pluginsdk/runtime"
 	"github.com/Silo-Server/silo-plugin-sdk/pkg/pluginsdk/runtimedefault"
+	"github.com/hashicorp/go-hclog"
 )
 
-const virtualPathPrefix = "aiostreams://"
+const (
+	virtualPathPrefix = "aiostreams://"
+	configKey         = "aiostreams"
+	maxResponseBytes  = 4 << 20
+)
 
 //go:embed manifest.json
 var manifestJSON []byte
 
-// aioStreamsResolver is the seam where a real AIOStreams API client can be
-// plugged in. The starter implementation deliberately performs no I/O.
 type aioStreamsResolver interface {
 	Resolve(context.Context, string) (string, error)
 }
-
-type mockAIOStreamsResolver struct {
-	baseURL string
-	now     func() time.Time
+type resolverConfig struct{ ManifestURL string }
+type aioStreamsClient struct {
+	client *http.Client
+	mu     sync.RWMutex
+	config resolverConfig
+}
+type stremioResponse struct {
+	Streams []stremioStream `json:"streams"`
+}
+type stremioStream struct {
+	URL string `json:"url"`
 }
 
-func (r mockAIOStreamsResolver) Resolve(_ context.Context, virtualPath string) (string, error) {
-	mediaID := strings.TrimPrefix(virtualPath, virtualPathPrefix)
-	mediaID = strings.TrimSpace(mediaID)
-	if mediaID == "" {
-		return "", errors.New("aiostreams path has no media identifier")
-	}
+func (c *aioStreamsClient) Configure(config resolverConfig) {
+	c.mu.Lock()
+	c.config = config
+	c.mu.Unlock()
+}
 
-	tokenBytes := make([]byte, 12)
-	if _, err := rand.Read(tokenBytes); err != nil {
-		return "", fmt.Errorf("generate mock stream token: %w", err)
-	}
-
-	streamURL, err := url.Parse(r.baseURL)
+func (c *aioStreamsClient) Resolve(ctx context.Context, virtualPath string) (string, error) {
+	mediaType, mediaID, err := parseVirtualPath(virtualPath)
 	if err != nil {
-		return "", fmt.Errorf("parse resolver base URL: %w", err)
+		return "", err
 	}
-	streamURL.Path = strings.TrimSuffix(streamURL.Path, "/") + "/" + mediaID + "/master.m3u8"
-	query := streamURL.Query()
-	query.Set("expires", fmt.Sprint(r.now().Add(15*time.Minute).Unix()))
-	query.Set("token", hex.EncodeToString(tokenBytes))
-	streamURL.RawQuery = query.Encode()
+	c.mu.RLock()
+	manifestURL := c.config.ManifestURL
+	c.mu.RUnlock()
+	endpoint, err := streamEndpoint(manifestURL, mediaType, mediaID)
+	if err != nil {
+		return "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return "", fmt.Errorf("create AIOStreams request: %w", err)
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("request AIOStreams: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("AIOStreams returned status %d", resp.StatusCode)
+	}
+	var payload stremioResponse
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(&payload); err != nil {
+		return "", fmt.Errorf("decode AIOStreams response: %w", err)
+	}
+	for _, stream := range payload.Streams {
+		candidate, parseErr := url.Parse(strings.TrimSpace(stream.URL))
+		if parseErr == nil && candidate.IsAbs() && (candidate.Scheme == "https" || candidate.Scheme == "http") {
+			return candidate.String(), nil
+		}
+	}
+	return "", errors.New("AIOStreams returned no playable HTTP streams")
+}
 
-	return streamURL.String(), nil
+func parseVirtualPath(virtualPath string) (string, string, error) {
+	if !strings.HasPrefix(virtualPath, virtualPathPrefix) {
+		return "", "", errors.New("path is not an aiostreams URI")
+	}
+	parts := strings.Split(strings.Trim(strings.TrimPrefix(virtualPath, virtualPathPrefix), "/"), "/")
+	if len(parts) < 2 {
+		return "", "", errors.New("aiostreams URI must contain a media type and identifier")
+	}
+	mediaType := strings.ToLower(parts[0])
+	if mediaType != "movie" && mediaType != "series" && mediaType != "anime" {
+		return "", "", fmt.Errorf("unsupported aiostreams media type %q", mediaType)
+	}
+	mediaID := strings.Join(parts[1:], ":")
+	if strings.ContainsAny(mediaID, "?#") || strings.Contains(mediaID, "..") {
+		return "", "", errors.New("aiostreams URI contains an invalid identifier")
+	}
+	return mediaType, mediaID, nil
+}
+
+func streamEndpoint(manifestURL, mediaType, mediaID string) (string, error) {
+	manifest, err := url.Parse(strings.TrimSpace(manifestURL))
+	if err != nil || manifest.Scheme != "https" || manifest.Host == "" {
+		return "", errors.New("a valid HTTPS AIOStreams manifest URL is required")
+	}
+	if !strings.HasSuffix(manifest.Path, "/manifest.json") {
+		return "", errors.New("AIOStreams URL must end in /manifest.json")
+	}
+	manifest.Path = strings.TrimSuffix(manifest.Path, "/manifest.json") + "/stream/" + url.PathEscape(mediaType) + "/" + url.PathEscape(mediaID) + ".json"
+	manifest.RawQuery = ""
+	manifest.Fragment = ""
+	return manifest.String(), nil
 }
 
 type runtimeServer struct {
 	runtimedefault.Server
 	manifest *pb.PluginManifest
+	resolver *aioStreamsClient
 }
 
 func (s *runtimeServer) GetManifest(context.Context, *pb.GetManifestRequest) (*pb.GetManifestResponse, error) {
 	return &pb.GetManifestResponse{Manifest: s.manifest}, nil
 }
+func (s *runtimeServer) Configure(_ context.Context, request *pb.ConfigureRequest) (*pb.ConfigureResponse, error) {
+	for _, entry := range request.GetConfig() {
+		if entry.GetKey() != configKey {
+			continue
+		}
+		manifestURL, _ := entry.GetValue().AsMap()["manifest_url"].(string)
+		if _, err := streamEndpoint(manifestURL, "movie", "tt0000001"); err != nil {
+			return nil, err
+		}
+		s.resolver.Configure(resolverConfig{ManifestURL: manifestURL})
+		return &pb.ConfigureResponse{}, nil
+	}
+	return nil, fmt.Errorf("required %q configuration is missing", configKey)
+}
 
-// playbackServer handles the SDK's current gRPC request interception service.
-// Non-virtual paths are rejected so they remain the responsibility of Silo.
 type playbackServer struct {
 	pb.UnimplementedHttpRoutesServer
 	resolver aioStreamsResolver
@@ -81,28 +155,20 @@ type playbackServer struct {
 
 func (s *playbackServer) Handle(ctx context.Context, request *pb.HandleHTTPRequest) (*pb.HandleHTTPResponse, error) {
 	if request == nil || !strings.HasPrefix(request.GetPath(), virtualPathPrefix) {
-		return &pb.HandleHTTPResponse{
-			StatusCode: 404,
-			Headers:    map[string]string{"content-type": "application/json"},
-			Body:       []byte(`{"error":"path is not handled by virtual playback"}`),
-		}, nil
+		return jsonResponse(http.StatusNotFound, map[string]string{"error": "path is not handled by virtual playback"})
 	}
-
 	streamURL, err := s.resolver.Resolve(ctx, request.GetPath())
 	if err != nil {
-		return nil, fmt.Errorf("resolve virtual playback path: %w", err)
+		return jsonResponse(http.StatusBadGateway, map[string]string{"error": err.Error()})
 	}
-
-	body, err := json.Marshal(map[string]string{"stream_url": streamURL})
+	return jsonResponse(http.StatusOK, map[string]string{"stream_url": streamURL})
+}
+func jsonResponse(status int, payload any) (*pb.HandleHTTPResponse, error) {
+	body, err := json.Marshal(payload)
 	if err != nil {
-		return nil, fmt.Errorf("encode playback response: %w", err)
+		return nil, err
 	}
-
-	return &pb.HandleHTTPResponse{
-		StatusCode: 200,
-		Headers:    map[string]string{"content-type": "application/json"},
-		Body:       body,
-	}, nil
+	return &pb.HandleHTTPResponse{StatusCode: int32(status), Headers: map[string]string{"content-type": "application/json"}, Body: body}, nil
 }
 
 func main() {
@@ -111,27 +177,18 @@ func main() {
 		fmt.Fprintf(os.Stderr, "load manifest: %v\n", err)
 		os.Exit(1)
 	}
-
-	resolver := mockAIOStreamsResolver{
-		baseURL: "https://resolver.aiostreams.example/stream",
-		now:     time.Now,
-	}
-
+	resolver := &aioStreamsClient{client: &http.Client{Timeout: 45 * time.Second}}
+	runtime := &runtimeServer{manifest: manifest, resolver: resolver}
 	sdkruntime.Serve(sdkruntime.ServeConfig{
-		Logger: hclog.New(&hclog.LoggerOptions{Name: "silo-virtual-library"}),
-		Servers: sdkruntime.CapabilityServers{
-			Runtime:    &runtimeServer{manifest: manifest},
-			HttpRoutes: &playbackServer{resolver: resolver},
-		},
+		Logger:  hclog.New(&hclog.LoggerOptions{Name: "silo-virtual-library"}),
+		Servers: sdkruntime.CapabilityServers{Runtime: runtime, HttpRoutes: &playbackServer{resolver: resolver}},
 	})
 }
-
 func loadManifest() (*pb.PluginManifest, error) {
 	manifest, err := publicmanifest.Load(manifestJSON)
 	if err != nil {
 		return nil, err
 	}
-
 	executable, err := os.Executable()
 	if err != nil {
 		return nil, fmt.Errorf("locate executable: %w", err)
@@ -142,6 +199,5 @@ func loadManifest() (*pb.PluginManifest, error) {
 	}
 	checksum := sha256.Sum256(binary)
 	manifest.Checksum = hex.EncodeToString(checksum[:])
-
 	return manifest, nil
 }
