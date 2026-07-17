@@ -1,6 +1,16 @@
 # Silo Virtual Library
 
 Silo Virtual Library is a zero-storage playback plugin prototype for Silo Server. The library database stores lightweight virtual media references such as `aiostreams://tmdb/movie/550`; no video files, manifests, or segments are persisted by the plugin. At playback time, the plugin resolves that reference into a short-lived upstream streaming URL.
+> **Prototype status:** the current release uses a mock resolver and demonstrates the plugin boundary. It does not resolve real AIOStreams playback URLs yet.
+
+## Install in Silo
+
+In Silo, open **Admin → Plugins → Catalog**, add the following custom repository URL, and install **Silo Virtual Library**:
+
+```text
+https://raw.githubusercontent.com/drondeseries/silo-virtual-library/main/catalog.json
+```
+
 
 ## How it works
 

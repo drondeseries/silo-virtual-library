@@ -14,7 +14,28 @@
   "presentation": {
     "display_name": "Silo Virtual Library",
     "summary": "Zero-storage virtual playback backed by dynamic AIOStreams resolution.",
-    "publisher_name": "yourusername",
-    "source_url": "https://github.com/yourusername/silo-virtual-library"
-  }
+    "description_markdown": "Resolves database-backed `aiostreams://` virtual media references into short-lived streaming URLs without storing media files in Silo.",
+    "setup_markdown": "Install the plugin from the custom catalog. This release uses a mock resolver and is intended for integration development; replace the mock before production playback.",
+    "homepage_url": "https://github.com/drondeseries/silo-virtual-library",
+    "source_url": "https://github.com/drondeseries/silo-virtual-library",
+    "support_url": "https://github.com/drondeseries/silo-virtual-library/issues",
+    "changelog_url": "https://github.com/drondeseries/silo-virtual-library/releases",
+    "publisher_name": "drondeseries",
+    "publisher_url": "https://github.com/drondeseries",
+    "license_spdx": "NOASSERTION"
+  },
+  "supported_platforms": [
+    {
+      "os": "linux",
+      "arch": "amd64"
+    },
+    {
+      "os": "linux",
+      "arch": "arm64"
+    },
+    {
+      "os": "darwin",
+      "arch": "arm64"
+    }
+  ]
 }
