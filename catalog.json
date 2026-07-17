@@ -3,7 +3,7 @@
     {
       "manifest": {
         "plugin_id": "com.yourusername.silo-virtual-library",
-        "version": "0.1.0",
+        "version": "0.2.0",
         "silo_api_version": "v1",
         "supported_platforms": [
           { "os": "linux", "arch": "amd64" },
@@ -22,7 +22,7 @@
           "display_name": "Silo Virtual Library",
           "summary": "Zero-storage virtual playback backed by dynamic AIOStreams resolution.",
           "description_markdown": "Resolves database-backed `aiostreams://` virtual media references into short-lived streaming URLs without storing media files in Silo.",
-          "setup_markdown": "Install the plugin from the custom catalog. This release uses a mock resolver and is intended for integration development; replace the mock before production playback.",
+          "setup_markdown": "Install the plugin, then configure its AIOStreams manifest URL in the plugin settings. The URL is stored as a secret and used only when resolving playback.",
           "homepage_url": "https://github.com/drondeseries/silo-virtual-library",
           "source_url": "https://github.com/drondeseries/silo-virtual-library",
           "support_url": "https://github.com/drondeseries/silo-virtual-library/issues",
@@ -35,16 +35,16 @@
       "repo_url": "https://github.com/drondeseries/silo-virtual-library",
       "binaries": {
         "linux/amd64": {
-          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.1.0/plugin-linux-amd64",
-          "checksum": "958534aaa96af256fa4de48c1ca28677b3f5c71cdaea94491435a6a6d5ab0843"
+          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.2.0/plugin-linux-amd64",
+          "checksum": "e66c0593d68bc5736236aae8d0f6a7e5eaee6a48fc24b378ea66dd9ace418dc2"
         },
         "linux/arm64": {
-          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.1.0/plugin-linux-arm64",
-          "checksum": "ed38d144faf6ec7a9224947ac54554ad3f11d37bdd09d3d92c7a7a2ccb74e1ad"
+          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.2.0/plugin-linux-arm64",
+          "checksum": "8279b6271661946fa37b2c87cc3034c5f570342dbdab16474e0d5d2bd4081abf"
         },
         "darwin/arm64": {
-          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.1.0/plugin-darwin-arm64",
-          "checksum": "17e1afae134ae9d73c52e062beda5e4230b56c3677877f71d609703075b1f4a6"
+          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.2.0/plugin-darwin-arm64",
+          "checksum": "032d774fcf8ea4c6fe5503bf1f054edcb8ad7aa7db37af6e19220903ab4c997e"
         }
       }
     }

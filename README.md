@@ -1,7 +1,6 @@
 # Silo Virtual Library
 
-Silo Virtual Library is a zero-storage playback plugin prototype for Silo Server. The library database stores lightweight virtual media references such as `aiostreams://tmdb/movie/550`; no video files, manifests, or segments are persisted by the plugin. At playback time, the plugin resolves that reference into a short-lived upstream streaming URL.
-> **Prototype status:** the current release uses a mock resolver and demonstrates the plugin boundary. It does not resolve real AIOStreams playback URLs yet.
+Silo Virtual Library is a zero-storage playback plugin for Silo Server. The library database stores lightweight virtual media references such as `aiostreams://movie/tt0133093`; no video files, manifests, or segments are persisted by the plugin. At playback time, the plugin asks the configured AIOStreams instance for a current upstream streaming URL.
 
 ## Install in Silo
 
@@ -20,7 +19,7 @@ https://raw.githubusercontent.com/drondeseries/silo-virtual-library/main/catalog
 4. The resolver returns a time-limited HLS URL for immediate playback.
 5. Silo or its client streams from that URL; this plugin stores no media locally.
 
-The included resolver is intentionally a mock. It generates a dynamic URL under `resolver.aiostreams.example`, with a random token and a 15-minute expiry, but makes no network request. Replace `mockAIOStreamsResolver` with an authenticated AIOStreams API client for production use. Keep credentials in Silo-managed plugin configuration rather than in the catalog database or source code.
+After installation, configure the plugin's **AIOStreams Manifest URL** in Silo. The plugin derives the Stremio stream endpoint from that URL, requests streams for the IMDb identifier, and returns the first valid HTTP or HTTPS source. Manifest credentials are held in Silo-managed secret configuration and must not be committed to the repository.
 
 ## SDK compatibility
 
