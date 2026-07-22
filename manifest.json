@@ -1,6 +1,6 @@
 {
   "plugin_id": "com.drondeseries.silo-virtual-library",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "checksum": "__CHECKSUM__",
   "silo_api_version": "v1",
   "http_routes": [
@@ -70,7 +70,7 @@
       "key": "aiostreams",
       "title": "AIOStreams",
       "description": "Connection to the configured AIOStreams Stremio addon.",
-      "json_schema": "{\"type\":\"object\",\"properties\":{\"manifest_url\":{\"type\":\"string\",\"format\":\"uri\"},\"movie_library_id\":{\"type\":\"integer\",\"minimum\":1},\"series_library_id\":{\"type\":\"integer\",\"minimum\":1},\"tmdb_api_key\":{\"type\":\"string\"},\"monitor_file\":{\"type\":\"string\",\"default\":\".silo-virtual-library-monitored.json\"}},\"required\":[\"manifest_url\",\"movie_library_id\",\"series_library_id\"],\"additionalProperties\":false}",
+      "json_schema": "{\"type\":\"object\",\"properties\":{\"manifest_url\":{\"type\":\"string\",\"format\":\"uri\"},\"movie_library_id\":{\"type\":\"integer\",\"minimum\":1},\"series_library_id\":{\"type\":\"integer\",\"minimum\":1},\"tmdb_api_key\":{\"type\":\"string\"},\"monitor_file\":{\"type\":\"string\",\"default\":\".silo-virtual-library-monitored.json\"},\"allow_insecure_http\":{\"type\":\"boolean\",\"default\":false}},\"required\":[\"manifest_url\",\"movie_library_id\",\"series_library_id\"],\"additionalProperties\":false}",
       "required": true,
       "admin_form": {
         "fields": [
@@ -91,6 +91,12 @@
             "description": "Optional TMDB v4 token or v3 API key used to distinguish theatrical from home-media releases.",
             "control": "ADMIN_FORM_CONTROL_PASSWORD",
             "secret": true
+          },
+          {
+            "key": "allow_insecure_http",
+            "label": "Allow local HTTP",
+            "description": "Allow plain HTTP only for localhost, .local, Docker service names, or private IPs. HTTPS remains the default.",
+            "control": "ADMIN_FORM_CONTROL_SWITCH"
           },
           {
             "key": "monitor_file",

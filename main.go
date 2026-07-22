@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -35,7 +36,10 @@ var manifestJSON []byte
 type aioStreamsResolver interface {
 	Resolve(context.Context, string) (string, error)
 }
-type resolverConfig struct{ ManifestURL string }
+type resolverConfig struct {
+	ManifestURL   string
+	AllowInsecure bool
+}
 type aioStreamsClient struct {
 	client *http.Client
 	mu     sync.RWMutex
@@ -62,8 +66,9 @@ func (c *aioStreamsClient) Resolve(ctx context.Context, virtualPath string) (str
 	}
 	c.mu.RLock()
 	manifestURL := c.config.ManifestURL
+	allowInsecure := c.config.AllowInsecure
 	c.mu.RUnlock()
-	endpoint, err := streamEndpoint(manifestURL, mediaType, mediaID)
+	endpoint, err := streamEndpointWithPolicy(manifestURL, mediaType, mediaID, allowInsecure)
 	if err != nil {
 		return "", err
 	}
@@ -112,9 +117,16 @@ func parseVirtualPath(virtualPath string) (string, string, error) {
 }
 
 func streamEndpoint(manifestURL, mediaType, mediaID string) (string, error) {
+	return streamEndpointWithPolicy(manifestURL, mediaType, mediaID, false)
+}
+
+func streamEndpointWithPolicy(manifestURL, mediaType, mediaID string, allowInsecure bool) (string, error) {
 	manifest, err := url.Parse(strings.TrimSpace(manifestURL))
-	if err != nil || manifest.Scheme != "https" || manifest.Host == "" {
+	if err != nil || manifest.Host == "" || (manifest.Scheme != "https" && manifest.Scheme != "http") || (manifest.Scheme != "https" && !allowInsecure) {
 		return "", errors.New("a valid HTTPS AIOStreams manifest URL is required")
+	}
+	if manifest.Scheme == "http" && !isPrivateHost(manifest.Hostname()) {
+		return "", errors.New("insecure HTTP is allowed only for private/local AIOStreams hosts")
 	}
 	if !strings.HasSuffix(manifest.Path, "/manifest.json") {
 		return "", errors.New("AIOStreams URL must end in /manifest.json")
@@ -123,6 +135,21 @@ func streamEndpoint(manifestURL, mediaType, mediaID string) (string, error) {
 	manifest.RawQuery = ""
 	manifest.Fragment = ""
 	return manifest.String(), nil
+}
+
+func isPrivateHost(host string) bool {
+	host = strings.TrimSpace(strings.ToLower(host))
+	if host == "localhost" || strings.HasSuffix(host, ".local") || host == "aiostreams" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
+		return true
+	}
+	return false
 }
 
 type runtimeServer struct {
@@ -143,11 +170,13 @@ func (s *runtimeServer) Configure(_ context.Context, request *pb.ConfigureReques
 		if entry.GetKey() != configKey {
 			continue
 		}
-		manifestURL, _ := entry.GetValue().AsMap()["manifest_url"].(string)
-		if _, err := streamEndpoint(manifestURL, "movie", "tt0000001"); err != nil {
+		values := entry.GetValue().AsMap()
+		manifestURL, _ := values["manifest_url"].(string)
+		allowInsecure, _ := values["allow_insecure_http"].(bool)
+		if _, err := streamEndpointWithPolicy(manifestURL, "movie", "tt0000001", allowInsecure); err != nil {
 			return nil, err
 		}
-		s.resolver.Configure(resolverConfig{ManifestURL: manifestURL})
+		s.resolver.Configure(resolverConfig{ManifestURL: manifestURL, AllowInsecure: allowInsecure})
 		tmdbAPIKey, _ := entry.GetValue().AsMap()["tmdb_api_key"].(string)
 		monitorFile, _ := entry.GetValue().AsMap()["monitor_file"].(string)
 		movieLibraryID, err := configuredFolderID(entry.GetValue().AsMap()["movie_library_id"])

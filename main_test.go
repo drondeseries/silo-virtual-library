@@ -60,6 +60,22 @@ func TestParseVirtualPath(t *testing.T) {
 	}
 }
 
+func TestStreamEndpointAllowsPrivateHTTPOnlyWhenOptedIn(t *testing.T) {
+	if _, err := streamEndpoint("http://aiostreams:8080/token/manifest.json", "movie", "tt0133093"); err == nil {
+		t.Fatal("streamEndpoint accepted HTTP without explicit opt-in")
+	}
+	endpoint, err := streamEndpointWithPolicy("http://aiostreams:8080/token/manifest.json", "movie", "tt0133093", true)
+	if err != nil {
+		t.Fatalf("private HTTP endpoint rejected: %v", err)
+	}
+	if endpoint != "http://aiostreams:8080/token/stream/movie/tt0133093.json" {
+		t.Fatalf("endpoint = %q", endpoint)
+	}
+	if _, err := streamEndpointWithPolicy("http://public.example/token/manifest.json", "movie", "tt0133093", true); err == nil {
+		t.Fatal("HTTP public endpoint accepted")
+	}
+}
+
 func TestPlaybackServerReturnsResolverFailureAsBadGateway(t *testing.T) {
 	server := playbackServer{resolver: resolverFunc(func(context.Context, string) (string, error) {
 		return "", context.DeadlineExceeded
