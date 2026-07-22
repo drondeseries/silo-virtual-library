@@ -3,7 +3,7 @@
     {
       "manifest": {
         "plugin_id": "com.drondeseries.silo-virtual-library",
-        "version": "0.3.2",
+        "version": "0.3.4",
         "silo_api_version": "v1",
         "capabilities": [
           {
@@ -72,7 +72,7 @@
             "key": "aiostreams",
             "title": "AIOStreams",
             "description": "Connection to the configured AIOStreams Stremio addon.",
-            "json_schema": "{\"type\":\"object\",\"properties\":{\"manifest_url\":{\"type\":\"string\",\"format\":\"uri\"},\"movie_library_id\":{\"type\":\"integer\",\"minimum\":1},\"series_library_id\":{\"type\":\"integer\",\"minimum\":1},\"tmdb_api_key\":{\"type\":\"string\"},\"monitor_file\":{\"type\":\"string\",\"default\":\".silo-virtual-library-monitored.json\"}},\"required\":[\"manifest_url\",\"movie_library_id\",\"series_library_id\"],\"additionalProperties\":false}",
+            "json_schema": "{\"type\":\"object\",\"properties\":{\"manifest_url\":{\"type\":\"string\",\"format\":\"uri\"},\"movie_library_id\":{\"type\":\"integer\",\"minimum\":1},\"series_library_id\":{\"type\":\"integer\",\"minimum\":1},\"tmdb_api_key\":{\"type\":\"string\"},\"monitor_file\":{\"type\":\"string\",\"default\":\".silo-virtual-library-monitored.json\"},\"allow_insecure_http\":{\"type\":\"boolean\",\"default\":false}},\"required\":[\"manifest_url\",\"movie_library_id\",\"series_library_id\"],\"additionalProperties\":false}",
             "required": true,
             "admin_form": {
               "fields": [
@@ -107,6 +107,12 @@
                   "secret": true
                 },
                 {
+                  "key": "allow_insecure_http",
+                  "label": "Allow local HTTP",
+                  "description": "Allow plain HTTP only for localhost, .local, single-label Docker/service names, or private IPs. HTTPS remains the default.",
+                  "control": 5
+                },
+                {
                   "key": "monitor_file",
                   "label": "Monitored Queue File",
                   "description": "Writable path used to persist queued media across plugin restarts.",
@@ -120,19 +126,19 @@
         ]
       },
       "repo_url": "https://github.com/drondeseries/silo-virtual-library",
-      "checksums_url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.3.2/checksums.txt",
+      "checksums_url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.3.4/checksums.txt",
       "binaries": {
         "linux/amd64": {
-          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.3.2/plugin-linux-amd64",
-          "checksum": "0d4cb217182d0492ad0eed58a16d655611aeb9363b42fbe60cecd28ddd863848"
+          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.3.4/plugin-linux-amd64",
+          "checksum": "931962d0a76c3bd21f3e5b74f04e5002c9e2a7921d21800aba66b81846632700"
         },
         "linux/arm64": {
-          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.3.2/plugin-linux-arm64",
-          "checksum": "bcbf6e3254ca53bf0ca10a639c7150170986563a041f19557cbac2c77c90f51a"
+          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.3.4/plugin-linux-arm64",
+          "checksum": "4287c56a84dea31edd6a81ae7ea510dbe1944bd85320e44bbda051c5634db8e2"
         },
         "darwin/arm64": {
-          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.3.2/plugin-darwin-arm64",
-          "checksum": "1369b7ef2d1713f183207719b34bb3969acb3a4489de982b637059b8499a8428"
+          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.3.4/plugin-darwin-arm64",
+          "checksum": "80551535aed0079b7109d69d591f64f75fb859eb50f3b4e3313b0e7d884121b0"
         }
       }
     }
