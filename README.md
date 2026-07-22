@@ -37,6 +37,11 @@ When an item becomes playable, the plugin submits a typed virtual-media registra
 
 The server administrator configures the AIOStreams manifest URL, TMDB token, Movies library ID, and Series library ID in the plugin settings. Normal users only interact with Request and Play.
 
+Silo Server collection imports can also enable **Zero-storage virtual playback**. When enabled on
+an MDBList, TMDB, or Trakt collection, the server materializes unmatched entries as virtual catalog
+items and uses this plugin's existing `virtual-playback` route for resolution. Future collection
+syncs add newly discovered entries without creating `.strm` or video files.
+
 ## SDK compatibility
 
 This project targets the additive RuntimeHost extension in `github.com/drondeseries/silo-plugin-sdk` v0.10.1-virtual.2. Generated protobuf types are published at `pkg/pluginproto/silo/plugin/v1` (imported as `pb`) and request interception is provided by the `HttpRoutes` gRPC service. The extension remains wire-compatible with the v0.10 RuntimeHost contract while adding canonical virtual-media runtime metadata.
