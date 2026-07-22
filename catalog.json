@@ -74,21 +74,21 @@
                   "key": "movie_library_id",
                   "label": "Movies Library ID",
                   "description": "Destination Silo Movies library.",
-                  "control": "ADMIN_FORM_CONTROL_NUMBER",
+                  "control": 4,
                   "required": true
                 },
                 {
                   "key": "series_library_id",
                   "label": "Series Library ID",
                   "description": "Destination Silo Series library.",
-                  "control": "ADMIN_FORM_CONTROL_NUMBER",
+                  "control": 4,
                   "required": true
                 },
                 {
                   "key": "manifest_url",
                   "label": "Manifest URL",
                   "description": "The complete tokenized AIOStreams URL ending in /manifest.json.",
-                  "control": "ADMIN_FORM_CONTROL_PASSWORD",
+                  "control": 3,
                   "placeholder": "https://…/manifest.json",
                   "required": true,
                   "secret": true
@@ -97,14 +97,14 @@
                   "key": "tmdb_api_key",
                   "label": "TMDB API Token",
                   "description": "Optional TMDB v4 token or v3 API key used to distinguish theatrical from home-media releases.",
-                  "control": "ADMIN_FORM_CONTROL_PASSWORD",
+                  "control": 3,
                   "secret": true
                 },
                 {
                   "key": "monitor_file",
                   "label": "Monitored Queue File",
                   "description": "Writable path used to persist queued media across plugin restarts.",
-                  "control": "ADMIN_FORM_CONTROL_TEXT",
+                  "control": 1,
                   "placeholder": ".silo-virtual-library-monitored.json"
                 }
               ],
