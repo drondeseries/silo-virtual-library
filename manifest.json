@@ -1,6 +1,6 @@
 {
   "plugin_id": "com.drondeseries.silo-virtual-library",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "checksum": "__CHECKSUM__",
   "silo_api_version": "v1",
   "http_routes": [
@@ -23,6 +23,12 @@
       "id": "virtual-library-requests",
       "display_name": "Virtual Library Requests",
       "description": "Registers home-released media immediately and queues upcoming media for monitoring.",
+      "metadata": {
+        "connection_defaults": {
+          "base_url": "plugin://virtual-library",
+          "api_key": "plugin-managed"
+        }
+      },
       "config_schema": [{"key":"connection","json_schema":"{\"type\":\"object\",\"properties\":{}}","admin_form":{"fields":[]}}]
     },
     {

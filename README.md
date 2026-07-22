@@ -21,6 +21,8 @@ https://raw.githubusercontent.com/drondeseries/silo-virtual-library/main/catalog
 
 After installation, configure the plugin's **AIOStreams Manifest URL** in Silo. The plugin derives the Stremio stream endpoint from that URL, requests streams for the IMDb identifier, and returns the first valid HTTP or HTTPS source. Manifest credentials are held in Silo-managed secret configuration and must not be committed to the repository.
 
+When Virtual Library is selected as a request connection, compatible Silo builds automatically populate the generic Base URL and API key fields with plugin-managed values. Administrators only need to save the connection and configure the plugin settings described above.
+
 ## Requests and monitored media
 
 The `request_router.v1` capability checks release availability before reporting a request complete. Movies use TMDB digital/physical release dates across every returned market when a TMDB token and ID are available; theatrical-only titles remain queued. Cinemeta supplies the conservative fallback release date. Once home-media availability is established, Silo registers the item immediately without waiting for AIOStreams discovery.
