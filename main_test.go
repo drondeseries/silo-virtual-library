@@ -71,6 +71,9 @@ func TestStreamEndpointAllowsPrivateHTTPOnlyWhenOptedIn(t *testing.T) {
 	if endpoint != "http://aiostreams:8080/token/stream/movie/tt0133093.json" {
 		t.Fatalf("endpoint = %q", endpoint)
 	}
+	if _, err := streamEndpointWithPolicy("http://altmount:8080/token/manifest.json", "movie", "tt0133093", true); err != nil {
+		t.Fatalf("single-label service endpoint rejected: %v", err)
+	}
 	if _, err := streamEndpointWithPolicy("http://public.example/token/manifest.json", "movie", "tt0133093", true); err == nil {
 		t.Fatal("HTTP public endpoint accepted")
 	}

@@ -139,7 +139,9 @@ func streamEndpointWithPolicy(manifestURL, mediaType, mediaID string, allowInsec
 
 func isPrivateHost(host string) bool {
 	host = strings.TrimSpace(strings.ToLower(host))
-	if host == "localhost" || strings.HasSuffix(host, ".local") || host == "aiostreams" {
+	// Single-label names are normally Docker/Kubernetes service names (for
+	// example "aiostreams" or "altmount") and are not public DNS names.
+	if host == "localhost" || strings.HasSuffix(host, ".local") || !strings.Contains(host, ".") {
 		return true
 	}
 	ip := net.ParseIP(host)
