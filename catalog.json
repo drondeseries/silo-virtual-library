@@ -2,27 +2,43 @@
   "plugins": [
     {
       "manifest": {
-        "plugin_id": "com.yourusername.silo-virtual-library",
-        "version": "0.2.0",
+        "plugin_id": "com.drondeseries.silo-virtual-library",
+        "version": "0.3.0",
         "silo_api_version": "v1",
-        "supported_platforms": [
-          { "os": "linux", "arch": "amd64" },
-          { "os": "linux", "arch": "arm64" },
-          { "os": "darwin", "arch": "arm64" }
-        ],
         "capabilities": [
           {
             "type": "http_routes.v1",
             "id": "virtual-playback",
             "display_name": "Virtual Playback",
             "description": "Resolves aiostreams:// virtual paths into short-lived streaming URLs."
+          },
+          {
+            "type": "request_router.v1",
+            "id": "virtual-library-requests",
+            "display_name": "Virtual Library Requests",
+            "description": "Registers home-released media immediately and queues upcoming media for monitoring.",
+            "config_schema": [
+              {
+                "key": "connection",
+                "json_schema": "{\"type\":\"object\",\"properties\":{}}",
+                "admin_form": {
+                  "fields": []
+                }
+              }
+            ]
+          },
+          {
+            "type": "scheduled_task.v1",
+            "id": "monitor-media",
+            "display_name": "Monitor Queued Media",
+            "description": "Checks queued media for home release and adds newly aired series episodes."
           }
         ],
         "presentation": {
           "display_name": "Silo Virtual Library",
           "summary": "Zero-storage virtual playback backed by dynamic AIOStreams resolution.",
-          "description_markdown": "Resolves database-backed `aiostreams://` virtual media references into short-lived streaming URLs without storing media files in Silo.",
-          "setup_markdown": "Install the plugin, then configure its AIOStreams manifest URL in the plugin settings. The URL is stored as a secret and used only when resolving playback.",
+          "description_markdown": "Registers and resolves host-managed `aiostreams://` virtual media through Silo's authenticated plugin control plane, without database credentials or stored media files.",
+          "setup_markdown": "Before enabling the request integration, enter the complete secret AIOStreams manifest URL and the numeric IDs of one Movies library and one Series library. Add an optional TMDB token for authoritative worldwide digital/physical release gating. No database URL or media path is required.",
           "homepage_url": "https://github.com/drondeseries/silo-virtual-library",
           "source_url": "https://github.com/drondeseries/silo-virtual-library",
           "support_url": "https://github.com/drondeseries/silo-virtual-library/issues",
@@ -30,21 +46,87 @@
           "publisher_name": "drondeseries",
           "publisher_url": "https://github.com/drondeseries",
           "license_spdx": "NOASSERTION"
-        }
+        },
+        "supported_platforms": [
+          {
+            "os": "linux",
+            "arch": "amd64"
+          },
+          {
+            "os": "linux",
+            "arch": "arm64"
+          },
+          {
+            "os": "darwin",
+            "arch": "arm64"
+          }
+        ],
+        "global_config_schema": [
+          {
+            "key": "aiostreams",
+            "title": "AIOStreams",
+            "description": "Connection to the configured AIOStreams Stremio addon.",
+            "json_schema": "{\"type\":\"object\",\"properties\":{\"manifest_url\":{\"type\":\"string\",\"format\":\"uri\"},\"movie_library_id\":{\"type\":\"integer\",\"minimum\":1},\"series_library_id\":{\"type\":\"integer\",\"minimum\":1},\"tmdb_api_key\":{\"type\":\"string\"},\"monitor_file\":{\"type\":\"string\",\"default\":\".silo-virtual-library-monitored.json\"}},\"required\":[\"manifest_url\",\"movie_library_id\",\"series_library_id\"],\"additionalProperties\":false}",
+            "required": true,
+            "admin_form": {
+              "fields": [
+                {
+                  "key": "movie_library_id",
+                  "label": "Movies Library ID",
+                  "description": "Destination Silo Movies library.",
+                  "control": "ADMIN_FORM_CONTROL_NUMBER",
+                  "required": true
+                },
+                {
+                  "key": "series_library_id",
+                  "label": "Series Library ID",
+                  "description": "Destination Silo Series library.",
+                  "control": "ADMIN_FORM_CONTROL_NUMBER",
+                  "required": true
+                },
+                {
+                  "key": "manifest_url",
+                  "label": "Manifest URL",
+                  "description": "The complete tokenized AIOStreams URL ending in /manifest.json.",
+                  "control": "ADMIN_FORM_CONTROL_PASSWORD",
+                  "placeholder": "https://…/manifest.json",
+                  "required": true,
+                  "secret": true
+                },
+                {
+                  "key": "tmdb_api_key",
+                  "label": "TMDB API Token",
+                  "description": "Optional TMDB v4 token or v3 API key used to distinguish theatrical from home-media releases.",
+                  "control": "ADMIN_FORM_CONTROL_PASSWORD",
+                  "secret": true
+                },
+                {
+                  "key": "monitor_file",
+                  "label": "Monitored Queue File",
+                  "description": "Writable path used to persist queued media across plugin restarts.",
+                  "control": "ADMIN_FORM_CONTROL_TEXT",
+                  "placeholder": ".silo-virtual-library-monitored.json"
+                }
+              ],
+              "submit_label": "Save AIOStreams connection"
+            }
+          }
+        ]
       },
       "repo_url": "https://github.com/drondeseries/silo-virtual-library",
+      "checksums_url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.3.0/checksums.txt",
       "binaries": {
         "linux/amd64": {
-          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.2.0/plugin-linux-amd64",
-          "checksum": "e66c0593d68bc5736236aae8d0f6a7e5eaee6a48fc24b378ea66dd9ace418dc2"
+          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.3.0/plugin-linux-amd64",
+          "checksum": "d885f331dfec9ad272990ebfc6f60ae8be7dc52603570eb6f4081be45de85d9b"
         },
         "linux/arm64": {
-          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.2.0/plugin-linux-arm64",
-          "checksum": "8279b6271661946fa37b2c87cc3034c5f570342dbdab16474e0d5d2bd4081abf"
+          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.3.0/plugin-linux-arm64",
+          "checksum": "ee8c12ce005a875a86771b44642a39488d5d3bf744f3b5d4ff8d82bab2cc18e0"
         },
         "darwin/arm64": {
-          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.2.0/plugin-darwin-arm64",
-          "checksum": "032d774fcf8ea4c6fe5503bf1f054edcb8ad7aa7db37af6e19220903ab4c997e"
+          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.3.0/plugin-darwin-arm64",
+          "checksum": "2d024e451f06b76012aae4f6fd81ee5a18e1780d8b4be95a678c4d3eaa6edfb8"
         }
       }
     }

@@ -1,10 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	pb "github.com/Silo-Server/silo-plugin-sdk/pkg/pluginproto/silo/plugin/v1"
@@ -12,17 +13,17 @@ import (
 
 func TestAIOStreamsClientResolvesFirstHTTPStream(t *testing.T) {
 	var gotPath string
-	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
 		gotPath = r.URL.Path
-		_ = json.NewEncoder(w).Encode(map[string]any{"streams": []map[string]string{
+		body, _ := json.Marshal(map[string]any{"streams": []map[string]string{
 			{"url": "magnet:?xt=urn:btih:ignored"},
 			{"url": "https://stream.example/movie.mkv?token=secret"},
 		}})
-	}))
-	defer server.Close()
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(body)), Header: make(http.Header)}, nil
+	})}
 
-	resolver := &aioStreamsClient{client: server.Client()}
-	resolver.Configure(resolverConfig{ManifestURL: server.URL + "/configured/manifest.json"})
+	resolver := &aioStreamsClient{client: client}
+	resolver.Configure(resolverConfig{ManifestURL: "https://aio.example/configured/manifest.json"})
 	streamURL, err := resolver.Resolve(context.Background(), "aiostreams://movie/tt0133093")
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
@@ -86,3 +87,7 @@ func TestPlaybackServerIgnoresRegularPath(t *testing.T) {
 type resolverFunc func(context.Context, string) (string, error)
 
 func (f resolverFunc) Resolve(ctx context.Context, path string) (string, error) { return f(ctx, path) }
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }

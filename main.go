@@ -41,6 +41,7 @@ type aioStreamsClient struct {
 	mu     sync.RWMutex
 	config resolverConfig
 }
+
 type stremioResponse struct {
 	Streams []stremioStream `json:"streams"`
 }
@@ -126,8 +127,12 @@ func streamEndpoint(manifestURL, mediaType, mediaID string) (string, error) {
 
 type runtimeServer struct {
 	runtimedefault.Server
+	pb.UnimplementedRequestRouterServer
+	pb.UnimplementedScheduledTaskServer
 	manifest *pb.PluginManifest
 	resolver *aioStreamsClient
+	monitor  *mediaMonitor
+	library  virtualMediaRegistrar
 }
 
 func (s *runtimeServer) GetManifest(context.Context, *pb.GetManifestRequest) (*pb.GetManifestResponse, error) {
@@ -143,6 +148,23 @@ func (s *runtimeServer) Configure(_ context.Context, request *pb.ConfigureReques
 			return nil, err
 		}
 		s.resolver.Configure(resolverConfig{ManifestURL: manifestURL})
+		tmdbAPIKey, _ := entry.GetValue().AsMap()["tmdb_api_key"].(string)
+		monitorFile, _ := entry.GetValue().AsMap()["monitor_file"].(string)
+		movieLibraryID, err := configuredFolderID(entry.GetValue().AsMap()["movie_library_id"])
+		if err != nil {
+			return nil, err
+		}
+		seriesLibraryID, err := configuredFolderID(entry.GetValue().AsMap()["series_library_id"])
+		if err != nil {
+			return nil, err
+		}
+		library, err := newSiloLibrary(sdkruntime.Host(), movieLibraryID, seriesLibraryID)
+		if err != nil {
+			return nil, err
+		}
+		s.library = library
+		s.monitor.setRegistrar(library)
+		s.monitor.Configure(monitorConfig{TMDBAPIKey: strings.TrimSpace(tmdbAPIKey), File: strings.TrimSpace(monitorFile)})
 		return &pb.ConfigureResponse{}, nil
 	}
 	return nil, fmt.Errorf("required %q configuration is missing", configKey)
@@ -154,10 +176,17 @@ type playbackServer struct {
 }
 
 func (s *playbackServer) Handle(ctx context.Context, request *pb.HandleHTTPRequest) (*pb.HandleHTTPResponse, error) {
-	if request == nil || !strings.HasPrefix(request.GetPath(), virtualPathPrefix) {
+	if request == nil {
 		return jsonResponse(http.StatusNotFound, map[string]string{"error": "path is not handled by virtual playback"})
 	}
-	streamURL, err := s.resolver.Resolve(ctx, request.GetPath())
+	path := request.GetPath()
+	if strings.HasPrefix(path, "/resolve/") {
+		path = strings.TrimPrefix(path, "/resolve/")
+	}
+	if !strings.HasPrefix(path, virtualPathPrefix) {
+		return jsonResponse(http.StatusNotFound, map[string]string{"error": "path is not handled by virtual playback"})
+	}
+	streamURL, err := s.resolver.Resolve(ctx, path)
 	if err != nil {
 		return jsonResponse(http.StatusBadGateway, map[string]string{"error": err.Error()})
 	}
@@ -178,10 +207,11 @@ func main() {
 		os.Exit(1)
 	}
 	resolver := &aioStreamsClient{client: &http.Client{Timeout: 45 * time.Second}}
-	runtime := &runtimeServer{manifest: manifest, resolver: resolver}
+	monitor := newMediaMonitor(resolver, hclog.New(&hclog.LoggerOptions{Name: "silo-virtual-library-monitor"}))
+	runtime := &runtimeServer{manifest: manifest, resolver: resolver, monitor: monitor}
 	sdkruntime.Serve(sdkruntime.ServeConfig{
 		Logger:  hclog.New(&hclog.LoggerOptions{Name: "silo-virtual-library"}),
-		Servers: sdkruntime.CapabilityServers{Runtime: runtime, HttpRoutes: &playbackServer{resolver: resolver}},
+		Servers: sdkruntime.CapabilityServers{Runtime: runtime, HttpRoutes: &playbackServer{resolver: resolver}, RequestRouter: runtime, ScheduledTask: runtime},
 	})
 }
 func loadManifest() (*pb.PluginManifest, error) {

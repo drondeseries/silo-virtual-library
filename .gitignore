@@ -22,6 +22,8 @@ go.work.sum
 # Build output
 bin/
 dist/
+/silo-virtual-library
+/.silo-virtual-library-monitored.json
 
 # Environment and editor files
 .env

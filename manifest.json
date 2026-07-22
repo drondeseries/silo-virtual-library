@@ -1,21 +1,42 @@
 {
-  "plugin_id": "com.yourusername.silo-virtual-library",
-  "version": "0.2.0",
+  "plugin_id": "com.drondeseries.silo-virtual-library",
+  "version": "0.3.0",
   "checksum": "__CHECKSUM__",
   "silo_api_version": "v1",
+  "http_routes": [
+    {
+      "id": "resolve-stream",
+      "method": "GET",
+      "path": "/resolve/*",
+      "access": "public"
+    }
+  ],
   "capabilities": [
     {
       "type": "http_routes.v1",
       "id": "virtual-playback",
       "display_name": "Virtual Playback",
       "description": "Resolves aiostreams:// virtual paths into short-lived streaming URLs."
+    },
+    {
+      "type": "request_router.v1",
+      "id": "virtual-library-requests",
+      "display_name": "Virtual Library Requests",
+      "description": "Registers home-released media immediately and queues upcoming media for monitoring.",
+      "config_schema": [{"key":"connection","json_schema":"{\"type\":\"object\",\"properties\":{}}","admin_form":{"fields":[]}}]
+    },
+    {
+      "type": "scheduled_task.v1",
+      "id": "monitor-media",
+      "display_name": "Monitor Queued Media",
+      "description": "Checks queued media for home release and adds newly aired series episodes."
     }
   ],
   "presentation": {
     "display_name": "Silo Virtual Library",
     "summary": "Zero-storage virtual playback backed by dynamic AIOStreams resolution.",
-    "description_markdown": "Resolves database-backed `aiostreams://` virtual media references into short-lived streaming URLs without storing media files in Silo.",
-    "setup_markdown": "Install the plugin, then configure the secret AIOStreams manifest URL under plugin settings. Enable virtual playback for a Silo collection; local media remains preferred.",
+    "description_markdown": "Registers and resolves host-managed `aiostreams://` virtual media through Silo's authenticated plugin control plane, without database credentials or stored media files.",
+    "setup_markdown": "Before enabling the request integration, enter the complete secret AIOStreams manifest URL and the numeric IDs of one Movies library and one Series library. Add an optional TMDB token for authoritative worldwide digital/physical release gating. No database URL or media path is required.",
     "homepage_url": "https://github.com/drondeseries/silo-virtual-library",
     "source_url": "https://github.com/drondeseries/silo-virtual-library",
     "support_url": "https://github.com/drondeseries/silo-virtual-library/issues",
@@ -43,10 +64,12 @@
       "key": "aiostreams",
       "title": "AIOStreams",
       "description": "Connection to the configured AIOStreams Stremio addon.",
-      "json_schema": "{\"type\":\"object\",\"properties\":{\"manifest_url\":{\"type\":\"string\",\"format\":\"uri\"}},\"required\":[\"manifest_url\"],\"additionalProperties\":false}",
+      "json_schema": "{\"type\":\"object\",\"properties\":{\"manifest_url\":{\"type\":\"string\",\"format\":\"uri\"},\"movie_library_id\":{\"type\":\"integer\",\"minimum\":1},\"series_library_id\":{\"type\":\"integer\",\"minimum\":1},\"tmdb_api_key\":{\"type\":\"string\"},\"monitor_file\":{\"type\":\"string\",\"default\":\".silo-virtual-library-monitored.json\"}},\"required\":[\"manifest_url\",\"movie_library_id\",\"series_library_id\"],\"additionalProperties\":false}",
       "required": true,
       "admin_form": {
         "fields": [
+		  {"key":"movie_library_id","label":"Movies Library ID","description":"Destination Silo Movies library.","control":"ADMIN_FORM_CONTROL_NUMBER","required":true},
+		  {"key":"series_library_id","label":"Series Library ID","description":"Destination Silo Series library.","control":"ADMIN_FORM_CONTROL_NUMBER","required":true},
           {
             "key": "manifest_url",
             "label": "Manifest URL",
@@ -55,6 +78,20 @@
             "placeholder": "https://…/manifest.json",
             "required": true,
             "secret": true
+          },
+          {
+            "key": "tmdb_api_key",
+            "label": "TMDB API Token",
+            "description": "Optional TMDB v4 token or v3 API key used to distinguish theatrical from home-media releases.",
+            "control": "ADMIN_FORM_CONTROL_PASSWORD",
+            "secret": true
+          },
+          {
+            "key": "monitor_file",
+            "label": "Monitored Queue File",
+            "description": "Writable path used to persist queued media across plugin restarts.",
+            "control": "ADMIN_FORM_CONTROL_TEXT",
+            "placeholder": ".silo-virtual-library-monitored.json"
           }
         ],
         "submit_label": "Save AIOStreams connection"
