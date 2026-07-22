@@ -89,6 +89,10 @@ func TestReleasedMovieCompletesWithoutWaitingForStreamDiscovery(t *testing.T) {
 			_, _ = w.Write([]byte(`{"results":[{"iso_3166_1":"US","release_dates":[{"type":4,"release_date":"2020-01-01T00:00:00.000Z"}]}]}`))
 			return
 		}
+		if r.URL.Path == "/movie/99" {
+			_, _ = w.Write([]byte(`{"runtime":133}`))
+			return
+		}
 		_, _ = w.Write([]byte(`{"meta":{"name":"Example Movie","description":"Overview","released":"2019-01-01T00:00:00.000Z"}}`))
 	}))
 	previousTMDB, previousCinemeta := tmdbBaseURL, cinemetaBaseURL
@@ -104,7 +108,11 @@ func TestReleasedMovieCompletesWithoutWaitingForStreamDiscovery(t *testing.T) {
 		return "", errors.New("not found")
 	}), hclog.NewNullLogger())
 	monitor.Configure(monitorConfig{TMDBAPIKey: "test-key", File: filepath.Join(t.TempDir(), "queue.json")})
-	monitor.setRegistrar(registrarFunc(func(context.Context, monitoredMedia) error { return nil }))
+	var registered monitoredMedia
+	monitor.setRegistrar(registrarFunc(func(_ context.Context, item monitoredMedia) error {
+		registered = item
+		return nil
+	}))
 	server := &runtimeServer{monitor: monitor}
 	response, err := server.Fulfill(context.Background(), &pb.FulfillRequest{
 		Request:   &pb.RequestDescriptor{MediaType: "movie", Title: "Example Movie", ExternalIds: map[string]string{"imdb": "tt99", "tmdb": "99"}},
@@ -117,6 +125,9 @@ func TestReleasedMovieCompletesWithoutWaitingForStreamDiscovery(t *testing.T) {
 	close(releasePrewarm)
 	if got := response.GetTargets()[0].GetStatus(); got != "completed" {
 		t.Fatalf("status = %q, want completed", got)
+	}
+	if registered.Runtime != 133 {
+		t.Fatalf("registered runtime = %d, want 133", registered.Runtime)
 	}
 }
 
@@ -161,6 +172,14 @@ func TestFetchTMDBReleaseQueuesWhenAllMarketsAreTheatrical(t *testing.T) {
 	_, err := fetchTMDBRelease(context.Background(), "1", "test-key")
 	if !errors.Is(err, errNoHomeRelease) {
 		t.Fatalf("error = %v, want errNoHomeRelease", err)
+	}
+}
+
+func TestParseRuntimeMinutes(t *testing.T) {
+	for input, want := range map[string]int{"48 min": 48, "1h 30min": 90, "129": 129, "": 0} {
+		if got := parseRuntimeMinutes(input); got != want {
+			t.Errorf("parseRuntimeMinutes(%q) = %d, want %d", input, got, want)
+		}
 	}
 }
 

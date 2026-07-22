@@ -29,13 +29,15 @@ Items that are upcoming or theatrical-only are persisted in the configured monit
 
 Only an explicit user request sends asynchronous prewarm lookups to AIOStreams: one lookup for a movie and one per already-aired episode for a series. Registration does not wait for those lookups. Future episodes of an ongoing series are added on schedule without prewarming; playback always performs a fresh resolution.
 
+Movie runtimes come from TMDB movie details when configured, with Cinemeta as fallback. Episode runtimes come from Cinemeta or TVMaze. Silo stores the canonical runtime before playback so growing HLS playlists do not make the seek bar expand second by second.
+
 When an item becomes playable, the plugin submits a typed virtual-media registration to Silo's authenticated RuntimeHost service. Silo validates the selected library and transactionally owns all catalog, episode, virtual-file, cache-invalidation, and metadata-refresh behavior. The plugin never receives database credentials, executes SQL, or creates `.strm` files.
 
 The server administrator configures the AIOStreams manifest URL, TMDB token, Movies library ID, and Series library ID in the plugin settings. Normal users only interact with Request and Play.
 
 ## SDK compatibility
 
-This project targets `github.com/Silo-Server/silo-plugin-sdk` v0.10.0. In this version, generated protobuf types are published at `pkg/pluginproto/silo/plugin/v1` (imported as `pb`) and request interception is provided by the `HttpRoutes` gRPC service. The older `github.com/Silo-Server/silo-plugin-sdk/pb` path and a dedicated `PlaybackServer` are not present in the current SDK, so `playbackServer` implements the supported `HttpRoutesServer` interface.
+This project targets the additive RuntimeHost extension in `github.com/drondeseries/silo-plugin-sdk` v0.10.1-virtual.2. Generated protobuf types are published at `pkg/pluginproto/silo/plugin/v1` (imported as `pb`) and request interception is provided by the `HttpRoutes` gRPC service. The extension remains wire-compatible with the v0.10 RuntimeHost contract while adding canonical virtual-media runtime metadata.
 
 ## Development
 

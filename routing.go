@@ -35,6 +35,7 @@ type monitoredMedia struct {
 	Key, MediaType, Title, StreamID, IMDbID, TMDBID, TVDBID string
 	MediaFolderID                                           int       `json:"media_folder_id,omitempty"`
 	Year                                                    int32     `json:"year"`
+	Runtime                                                 int       `json:"runtime,omitempty"`
 	Release                                                 time.Time `json:"release"`
 	Ready                                                   bool      `json:"ready"`
 	Overview, Poster, Backdrop                              string
@@ -192,6 +193,9 @@ func (m *mediaMonitor) evaluate(ctx context.Context, item monitoredMedia) (monit
 		}
 	}
 	if item.MediaType == "movie" {
+		if runtime, err := m.fetchTMDBMovieRuntime(ctx, item); err == nil && runtime > 0 {
+			item.Runtime = runtime
+		}
 		release, err := m.movieRelease(ctx, item)
 		if err != nil {
 			item.Ready = false
@@ -448,6 +452,7 @@ func (m *mediaMonitor) fetchCinemeta(ctx context.Context, item monitoredMedia) (
 	var payload struct {
 		Meta struct {
 			Name, Description, Poster, Background string
+			Runtime                               string `json:"runtime"`
 			Genres                                []string
 			Videos                                []struct {
 				ID, Title, Overview, Thumbnail string
@@ -463,6 +468,9 @@ func (m *mediaMonitor) fetchCinemeta(ctx context.Context, item monitoredMedia) (
 		item.Title = payload.Meta.Name
 	}
 	item.Overview, item.Poster, item.Backdrop, item.Genres = payload.Meta.Description, payload.Meta.Poster, payload.Meta.Background, payload.Meta.Genres
+	if runtime := parseRuntimeMinutes(payload.Meta.Runtime); runtime > 0 {
+		item.Runtime = runtime
+	}
 	item.Episodes = item.Episodes[:0]
 	for _, video := range payload.Meta.Videos {
 		item.Episodes = append(item.Episodes, virtualEpisode{Season: video.Season, Episode: video.Episode, Title: video.Title, Overview: video.Overview, Thumbnail: video.Thumbnail, Released: video.Released})
@@ -471,6 +479,30 @@ func (m *mediaMonitor) fetchCinemeta(ctx context.Context, item monitoredMedia) (
 }
 
 var htmlTagPattern = regexp.MustCompile(`<[^>]*>`)
+var runtimeHourPattern = regexp.MustCompile(`(?i)(\d+)\s*h`)
+var runtimeMinutePattern = regexp.MustCompile(`(?i)(\d+)\s*m`)
+var runtimeNumberPattern = regexp.MustCompile(`\d+`)
+
+func parseRuntimeMinutes(value string) int {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+	hours, minutes := 0, 0
+	if match := runtimeHourPattern.FindStringSubmatch(value); len(match) == 2 {
+		hours, _ = strconv.Atoi(match[1])
+	}
+	if match := runtimeMinutePattern.FindStringSubmatch(value); len(match) == 2 {
+		minutes, _ = strconv.Atoi(match[1])
+	}
+	if hours > 0 || minutes > 0 {
+		return hours*60 + minutes
+	}
+	if match := runtimeNumberPattern.FindString(value); match != "" {
+		minutes, _ = strconv.Atoi(match)
+	}
+	return minutes
+}
 
 func cleanTVMazeSummary(value string) string {
 	return strings.TrimSpace(html.UnescapeString(htmlTagPattern.ReplaceAllString(value, "")))
@@ -619,6 +651,39 @@ func (m *mediaMonitor) movieRelease(ctx context.Context, item monitoredMedia) (t
 		}
 	}
 	return time.Time{}, errors.New("Cinemeta has no release date")
+}
+
+func (m *mediaMonitor) fetchTMDBMovieRuntime(ctx context.Context, item monitoredMedia) (int, error) {
+	m.mu.Lock()
+	key := m.config.TMDBAPIKey
+	m.mu.Unlock()
+	if key == "" || item.TMDBID == "" {
+		return 0, nil
+	}
+	endpoint := strings.TrimRight(tmdbBaseURL, "/") + "/movie/" + url.PathEscape(item.TMDBID)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if strings.Count(key, ".") == 2 {
+		req.Header.Set("Authorization", "Bearer "+key)
+	} else {
+		query := req.URL.Query()
+		query.Set("api_key", key)
+		req.URL.RawQuery = query.Encode()
+	}
+	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("TMDB movie details HTTP %d", resp.StatusCode)
+	}
+	var payload struct {
+		Runtime int `json:"runtime"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(&payload); err != nil {
+		return 0, err
+	}
+	return payload.Runtime, nil
 }
 func fetchTMDBRelease(ctx context.Context, id, key string) (time.Time, error) {
 	endpoint := strings.TrimRight(tmdbBaseURL, "/") + "/movie/" + url.PathEscape(id) + "/release_dates"

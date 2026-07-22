@@ -71,7 +71,7 @@ func (l *siloLibrary) Register(ctx context.Context, item monitoredMedia) error {
 	_, err := l.host.UpsertVirtualMedia(ctx, runtimehost.VirtualMediaRequest{
 		LibraryID: strconv.Itoa(libraryID), MediaType: item.MediaType, Title: item.Title, Year: int(item.Year),
 		IMDbID: item.IMDbID, TMDBID: item.TMDBID, TVDBID: item.TVDBID, Overview: item.Overview, Genres: item.Genres,
-		PosterPath: item.Poster, BackdropPath: item.Backdrop, VirtualURI: virtualURI, Episodes: episodes,
+		PosterPath: item.Poster, BackdropPath: item.Backdrop, VirtualURI: virtualURI, RuntimeMinutes: item.Runtime, Episodes: episodes,
 	})
 	if err != nil {
 		return fmt.Errorf("register virtual media with Silo: %w", err)
