@@ -20,16 +20,17 @@ type siloLibrary struct {
 	host            *runtimehost.Client
 	movieLibraryID  int
 	seriesLibraryID int
+	resolver        aioStreamsResolver
 }
 
-func newSiloLibrary(host *runtimehost.Client, movieLibraryID, seriesLibraryID int) (*siloLibrary, error) {
+func newSiloLibrary(host *runtimehost.Client, movieLibraryID, seriesLibraryID int, resolver aioStreamsResolver) (*siloLibrary, error) {
 	if host == nil {
 		return nil, errors.New("Silo host services are not ready")
 	}
 	if movieLibraryID <= 0 || seriesLibraryID <= 0 {
 		return nil, errors.New("movie_library_id and series_library_id are required")
 	}
-	return &siloLibrary{host: host, movieLibraryID: movieLibraryID, seriesLibraryID: seriesLibraryID}, nil
+	return &siloLibrary{host: host, movieLibraryID: movieLibraryID, seriesLibraryID: seriesLibraryID, resolver: resolver}, nil
 }
 
 func configuredFolderID(value any) (int, error) {
@@ -62,17 +63,24 @@ func (l *siloLibrary) Register(ctx context.Context, item monitoredMedia) error {
 		if episode.Season <= 0 || episode.Episode <= 0 {
 			continue
 		}
+		virtualEpURI := fmt.Sprintf("%sseries/%s/%d/%d", virtualPathPrefix, item.StreamID, episode.Season, episode.Episode)
 		episodes = append(episodes, runtimehost.VirtualEpisode{
 			SeasonNumber: episode.Season, EpisodeNumber: episode.Episode, Title: episode.Title, Overview: episode.Overview,
 			AirDate: episode.Released, RuntimeMinutes: episode.Runtime, StillPath: episode.Thumbnail,
-			VirtualURI: fmt.Sprintf("%sseries/%s/%d/%d", virtualPathPrefix, item.StreamID, episode.Season, episode.Episode),
+			VirtualURI: virtualEpURI,
+			Variants:   l.resolver.GetVariants(ctx, virtualEpURI),
 		})
 	}
-	_, err := l.host.UpsertVirtualMedia(ctx, runtimehost.VirtualMediaRequest{
+	req := runtimehost.VirtualMediaRequest{
 		LibraryID: strconv.Itoa(libraryID), MediaType: item.MediaType, Title: item.Title, Year: int(item.Year),
 		IMDbID: item.IMDbID, TMDBID: item.TMDBID, TVDBID: item.TVDBID, Overview: item.Overview, Genres: item.Genres,
 		PosterPath: item.Poster, BackdropPath: item.Backdrop, VirtualURI: virtualURI, RuntimeMinutes: item.Runtime, Episodes: episodes,
-	})
+	}
+	if item.MediaType == "movie" {
+		req.Variants = l.resolver.GetVariants(ctx, virtualURI)
+	}
+
+	_, err := l.host.UpsertVirtualMedia(ctx, req)
 	if err != nil {
 		return fmt.Errorf("register virtual media with Silo: %w", err)
 	}

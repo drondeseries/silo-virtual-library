@@ -21,6 +21,7 @@ import (
 	publicmanifest "github.com/Silo-Server/silo-plugin-sdk/pkg/pluginsdk/manifest"
 	sdkruntime "github.com/Silo-Server/silo-plugin-sdk/pkg/pluginsdk/runtime"
 	"github.com/Silo-Server/silo-plugin-sdk/pkg/pluginsdk/runtimedefault"
+	"github.com/Silo-Server/silo-plugin-sdk/pkg/pluginsdk/runtimehost"
 	"github.com/hashicorp/go-hclog"
 )
 
@@ -35,10 +36,12 @@ var manifestJSON []byte
 
 type aioStreamsResolver interface {
 	Resolve(context.Context, string) (string, error)
+	GetVariants(context.Context, string) []runtimehost.VirtualMediaVariant
 }
 type resolverConfig struct {
 	ManifestURL   string
 	AllowInsecure bool
+	Quality       QualityConfig
 }
 type aioStreamsClient struct {
 	client *http.Client
@@ -47,10 +50,7 @@ type aioStreamsClient struct {
 }
 
 type stremioResponse struct {
-	Streams []stremioStream `json:"streams"`
-}
-type stremioStream struct {
-	URL string `json:"url"`
+	Streams []StreamCandidate `json:"streams"`
 }
 
 func (c *aioStreamsClient) Configure(config resolverConfig) {
@@ -60,48 +60,155 @@ func (c *aioStreamsClient) Configure(config resolverConfig) {
 }
 
 func (c *aioStreamsClient) Resolve(ctx context.Context, virtualPath string) (string, error) {
-	mediaType, mediaID, err := parseVirtualPath(virtualPath)
+	candidates, _, _, err := c.GetCandidates(ctx, virtualPath)
 	if err != nil {
 		return "", err
 	}
+	if len(candidates) == 0 {
+		return "", errors.New("AIOStreams returned no streams")
+	}
+
+	u, _ := url.Parse(virtualPath)
+	requestedProfile := ""
+	if u != nil {
+		requestedProfile = u.Query().Get("profile")
+	}
+
+	c.mu.RLock()
+	config := c.config.Quality
+	c.mu.RUnlock()
+
+	if !config.EnableProfiles || requestedProfile == "" {
+		return candidates[0].URL, nil
+	}
+
+	var matchProfileObj QualityProfile
+	found := false
+	for _, p := range config.Profiles {
+		if strings.EqualFold(p.Label, requestedProfile) {
+			matchProfileObj = p
+			found = true
+			break
+		}
+	}
+
+	if found {
+		var matched []StreamCandidate
+		for _, cand := range candidates {
+			if matchProfile(cand, matchProfileObj) {
+				matched = append(matched, cand)
+			}
+		}
+		if len(matched) > 0 {
+			sortCandidatesForProfile(matched, matchProfileObj)
+			return matched[0].URL, nil
+		}
+	}
+
+	if config.FallbackToAnyStream {
+		return candidates[0].URL, nil
+	}
+
+	return "", fmt.Errorf("no stream matches profile %q", requestedProfile)
+}
+
+func (c *aioStreamsClient) GetCandidates(ctx context.Context, virtualPath string) ([]StreamCandidate, string, string, error) {
+	mediaType, mediaID, err := parseVirtualPath(virtualPath)
+	if err != nil {
+		return nil, mediaType, mediaID, err
+	}
+	
+	// strip query from mediaID
+	if idx := strings.Index(mediaID, "?"); idx != -1 {
+		mediaID = mediaID[:idx]
+	}
+
 	c.mu.RLock()
 	manifestURL := c.config.ManifestURL
 	allowInsecure := c.config.AllowInsecure
 	c.mu.RUnlock()
 	endpoint, err := streamEndpointWithPolicy(manifestURL, mediaType, mediaID, allowInsecure)
 	if err != nil {
-		return "", err
+		return nil, mediaType, mediaID, err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		return "", fmt.Errorf("create AIOStreams request: %w", err)
+		return nil, mediaType, mediaID, fmt.Errorf("create AIOStreams request: %w", err)
 	}
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("request AIOStreams: %w", err)
+		return nil, mediaType, mediaID, fmt.Errorf("request AIOStreams: %w", err)
 	}
 	defer resp.Body.Close()
+	var validCandidates []StreamCandidate
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("AIOStreams returned status %d", resp.StatusCode)
+		return validCandidates, mediaType, mediaID, fmt.Errorf("AIOStreams returned status %d", resp.StatusCode)
 	}
 	var payload stremioResponse
 	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(&payload); err != nil {
-		return "", fmt.Errorf("decode AIOStreams response: %w", err)
+		return validCandidates, mediaType, mediaID, fmt.Errorf("decode AIOStreams response: %w", err)
 	}
-	for _, stream := range payload.Streams {
+	for i, stream := range payload.Streams {
 		candidate, parseErr := url.Parse(strings.TrimSpace(stream.URL))
 		if parseErr == nil && candidate.IsAbs() && (candidate.Scheme == "https" || candidate.Scheme == "http") {
-			return candidate.String(), nil
+			stream.OriginalIndex = i
+			parseStreamDetails(&stream)
+			validCandidates = append(validCandidates, stream)
 		}
 	}
-	return "", errors.New("AIOStreams returned no playable HTTP streams")
+	return validCandidates, mediaType, mediaID, nil
+}
+
+func (c *aioStreamsClient) GetVariants(ctx context.Context, virtualPath string) []runtimehost.VirtualMediaVariant {
+	var variants []runtimehost.VirtualMediaVariant
+	c.mu.RLock()
+	config := c.config.Quality
+	c.mu.RUnlock()
+	
+	if !config.EnableProfiles {
+		return variants
+	}
+
+	candidates, _, _, err := c.GetCandidates(ctx, virtualPath)
+	if err != nil || len(candidates) == 0 {
+		return variants
+	}
+
+	for _, p := range config.Profiles {
+		var matched []StreamCandidate
+		for _, cand := range candidates {
+			if matchProfile(cand, p) {
+				matched = append(matched, cand)
+			}
+		}
+		if len(matched) > 0 {
+			sortCandidatesForProfile(matched, p)
+			top := matched[0]
+			variants = append(variants, runtimehost.VirtualMediaVariant{
+				VirtualURI: virtualPath + "?profile=" + url.QueryEscape(p.Label),
+				Label:      p.Label,
+				Resolution: top.Resolution,
+				CodecVideo: top.CodecVideo,
+				CodecAudio: top.CodecAudio,
+				HDR:        top.HDR,
+			})
+			if len(variants) >= config.MaxVersionsPerItem {
+				break
+			}
+		}
+	}
+	return variants
 }
 
 func parseVirtualPath(virtualPath string) (string, string, error) {
 	if !strings.HasPrefix(virtualPath, virtualPathPrefix) {
 		return "", "", errors.New("path is not an aiostreams URI")
 	}
-	parts := strings.Split(strings.Trim(strings.TrimPrefix(virtualPath, virtualPathPrefix), "/"), "/")
+	cleanPath := virtualPath
+	if idx := strings.Index(cleanPath, "?"); idx != -1 {
+		cleanPath = cleanPath[:idx]
+	}
+	parts := strings.Split(strings.Trim(strings.TrimPrefix(cleanPath, virtualPathPrefix), "/"), "/")
 	if len(parts) < 2 {
 		return "", "", errors.New("aiostreams URI must contain a media type and identifier")
 	}
@@ -178,7 +285,39 @@ func (s *runtimeServer) Configure(_ context.Context, request *pb.ConfigureReques
 		if _, err := streamEndpointWithPolicy(manifestURL, "movie", "tt0000001", allowInsecure); err != nil {
 			return nil, err
 		}
-		s.resolver.Configure(resolverConfig{ManifestURL: manifestURL, AllowInsecure: allowInsecure})
+		
+		var qc QualityConfig
+		qc.EnableProfiles, _ = values["enable_quality_profiles"].(bool)
+		qc.FallbackToAnyStream, _ = values["fallback_to_any_stream"].(bool)
+		
+		if maxV, ok := values["max_versions_per_item"].(float64); ok {
+			qc.MaxVersionsPerItem = int(maxV)
+		} else {
+			qc.MaxVersionsPerItem = 3
+		}
+
+		if profilesRaw, ok := values["quality_profiles"].([]interface{}); ok {
+			for _, pr := range profilesRaw {
+				if pMap, ok := pr.(map[string]interface{}); ok {
+					var p QualityProfile
+					if v, ok := pMap["label"].(string); ok { p.Label = v }
+					if v, ok := pMap["resolution"].(string); ok { p.Resolution = v }
+					if v, ok := pMap["include_regex"].(string); ok { p.IncludeRegex = v }
+					if v, ok := pMap["exclude_regex"].(string); ok { p.ExcludeRegex = v }
+					if v, ok := pMap["preferred_order"].(float64); ok { p.PreferredOrder = int(v) }
+					if v, ok := pMap["codec_video"].(string); ok { p.CodecVideo = v }
+					if v, ok := pMap["codec_audio"].(string); ok { p.CodecAudio = v }
+					if v, ok := pMap["hdr"].(string); ok { p.HDR = v }
+					qc.Profiles = append(qc.Profiles, p)
+				}
+			}
+		}
+
+		if err := qc.Validate(); err != nil {
+			return nil, fmt.Errorf("invalid quality config: %w", err)
+		}
+
+		s.resolver.Configure(resolverConfig{ManifestURL: manifestURL, AllowInsecure: allowInsecure, Quality: qc})
 		tmdbAPIKey, _ := entry.GetValue().AsMap()["tmdb_api_key"].(string)
 		monitorFile, _ := entry.GetValue().AsMap()["monitor_file"].(string)
 		movieLibraryID, err := configuredFolderID(entry.GetValue().AsMap()["movie_library_id"])
@@ -189,7 +328,7 @@ func (s *runtimeServer) Configure(_ context.Context, request *pb.ConfigureReques
 		if err != nil {
 			return nil, err
 		}
-		library, err := newSiloLibrary(sdkruntime.Host(), movieLibraryID, seriesLibraryID)
+		library, err := newSiloLibrary(sdkruntime.Host(), movieLibraryID, seriesLibraryID, s.resolver)
 		if err != nil {
 			return nil, err
 		}

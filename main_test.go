@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	pb "github.com/Silo-Server/silo-plugin-sdk/pkg/pluginproto/silo/plugin/v1"
+	"github.com/Silo-Server/silo-plugin-sdk/pkg/pluginsdk/runtimehost"
 )
 
 func TestAIOStreamsClientResolvesFirstHTTPStream(t *testing.T) {
@@ -106,7 +107,107 @@ func TestPlaybackServerIgnoresRegularPath(t *testing.T) {
 type resolverFunc func(context.Context, string) (string, error)
 
 func (f resolverFunc) Resolve(ctx context.Context, path string) (string, error) { return f(ctx, path) }
+func (f resolverFunc) GetVariants(ctx context.Context, path string) []runtimehost.VirtualMediaVariant { return nil }
 
 type roundTripperFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestQualityProfiles(t *testing.T) {
+	client := &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		body, _ := json.Marshal(map[string]any{"streams": []map[string]string{
+			{"url": "https://stream.example/movie1.mkv", "title": "720p HDTV"},
+			{"url": "https://stream.example/movie2.mkv", "title": "1080p WEB-DL"},
+			{"url": "https://stream.example/movie3.mkv", "title": "2160p REMUX Dolby Vision", "name": "4K Stream"},
+			{"url": "https://stream.example/movie4.mkv", "title": "2160p HDR10 WEB-DL"},
+		}})
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(body)), Header: make(http.Header)}, nil
+	})}
+	
+	resolver := &aioStreamsClient{client: client}
+	
+	qc := QualityConfig{
+		EnableProfiles: true,
+		Profiles: []QualityProfile{
+			{Label: "4K DV", Resolution: "2160p", HDR: "dv"},
+			{Label: "1080p", Resolution: "1080p"},
+			{Label: "Exclude Remux", ExcludeRegex: "(?i)remux"},
+			{Label: "Include HDR10", IncludeRegex: "(?i)hdr10"},
+		},
+		FallbackToAnyStream: true,
+		MaxVersionsPerItem:  4,
+	}
+	qc.Validate()
+	
+	resolver.Configure(resolverConfig{ManifestURL: "https://aio.example/manifest.json", Quality: qc})
+	
+	ctx := context.Background()
+	
+	url1, err := resolver.Resolve(ctx, "aiostreams://movie/tt0133093?profile=4K+DV")
+	if err != nil || url1 != "https://stream.example/movie3.mkv" {
+		t.Fatalf("Expected movie3.mkv, got %v %v", url1, err)
+	}
+	
+	url2, err := resolver.Resolve(ctx, "aiostreams://movie/tt0133093?profile=1080p")
+	if err != nil || url2 != "https://stream.example/movie2.mkv" {
+		t.Fatalf("Expected movie2.mkv, got %v %v", url2, err)
+	}
+	
+	url3, err := resolver.Resolve(ctx, "aiostreams://movie/tt0133093?profile=Exclude+Remux")
+	if err != nil || url3 != "https://stream.example/movie4.mkv" {
+		t.Fatalf("Expected movie4.mkv (best without remux), got %v %v", url3, err)
+	}
+	
+	url4, err := resolver.Resolve(ctx, "aiostreams://movie/tt0133093?profile=Include+HDR10")
+	if err != nil || url4 != "https://stream.example/movie4.mkv" {
+		t.Fatalf("Expected movie4.mkv, got %v %v", url4, err)
+	}
+
+	url5, err := resolver.Resolve(ctx, "aiostreams://movie/tt0133093")
+	if err != nil || url5 != "https://stream.example/movie1.mkv" {
+		t.Fatalf("Expected movie1.mkv (fallback any stream), got %v %v", url5, err)
+	}
+	
+	variants := resolver.GetVariants(ctx, "aiostreams://movie/tt0133093")
+	if len(variants) != 4 {
+		t.Fatalf("Expected 4 variants, got %d", len(variants))
+	}
+	
+	qc.FallbackToAnyStream = false
+	resolver.Configure(resolverConfig{ManifestURL: "https://aio.example/manifest.json", Quality: qc})
+	_, err = resolver.Resolve(ctx, "aiostreams://movie/tt0133093?profile=NonExistent")
+	if err == nil {
+		t.Fatalf("Expected error for non-existent profile when fallback is false")
+	}
+	
+	qc.EnableProfiles = false
+	resolver.Configure(resolverConfig{ManifestURL: "https://aio.example/manifest.json", Quality: qc})
+	url6, err := resolver.Resolve(ctx, "aiostreams://movie/tt0133093?profile=4K+DV")
+	if err != nil || url6 != "https://stream.example/movie1.mkv" {
+		t.Fatalf("Expected movie1.mkv when profiles are disabled, got %v %v", url6, err)
+	}
+}
+
+func TestQualityConfigValidation(t *testing.T) {
+	qc := QualityConfig{
+		EnableProfiles: true,
+		Profiles: []QualityProfile{
+			{Label: "P1", IncludeRegex: "["},
+		},
+	}
+	err := qc.Validate()
+	if err == nil {
+		t.Fatalf("Expected error for invalid regex")
+	}
+	
+	qc2 := QualityConfig{
+		EnableProfiles: true,
+		Profiles: []QualityProfile{
+			{Label: "P1"}, {Label: "p1"},
+		},
+	}
+	err2 := qc2.Validate()
+	if err2 == nil {
+		t.Fatalf("Expected error for duplicate label")
+	}
+}

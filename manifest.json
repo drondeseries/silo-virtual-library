@@ -70,7 +70,7 @@
       "key": "aiostreams",
       "title": "AIOStreams",
       "description": "Connection to the configured AIOStreams Stremio addon.",
-      "json_schema": "{\"type\":\"object\",\"properties\":{\"manifest_url\":{\"type\":\"string\",\"format\":\"uri\"},\"movie_library_id\":{\"type\":\"integer\",\"minimum\":1},\"series_library_id\":{\"type\":\"integer\",\"minimum\":1},\"tmdb_api_key\":{\"type\":\"string\"},\"monitor_file\":{\"type\":\"string\",\"default\":\".silo-virtual-library-monitored.json\"},\"allow_insecure_http\":{\"type\":\"boolean\",\"default\":false}},\"required\":[\"manifest_url\",\"movie_library_id\",\"series_library_id\"],\"additionalProperties\":false}",
+      "json_schema": "{\"type\":\"object\",\"properties\":{\"manifest_url\":{\"type\":\"string\",\"format\":\"uri\"},\"movie_library_id\":{\"type\":\"integer\",\"minimum\":1},\"series_library_id\":{\"type\":\"integer\",\"minimum\":1},\"tmdb_api_key\":{\"type\":\"string\"},\"monitor_file\":{\"type\":\"string\",\"default\":\".silo-virtual-library-monitored.json\"},\"allow_insecure_http\":{\"type\":\"boolean\",\"default\":false},\"enable_quality_profiles\":{\"type\":\"boolean\",\"default\":false},\"quality_profiles\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"label\":{\"type\":\"string\"},\"resolution\":{\"type\":\"string\"},\"include_regex\":{\"type\":\"string\"},\"exclude_regex\":{\"type\":\"string\"},\"preferred_order\":{\"type\":\"integer\"},\"codec_video\":{\"type\":\"string\"},\"codec_audio\":{\"type\":\"string\"},\"hdr\":{\"type\":\"string\"}},\"required\":[\"label\"]}},\"fallback_to_any_stream\":{\"type\":\"boolean\",\"default\":false},\"max_versions_per_item\":{\"type\":\"integer\",\"default\":3}},\"required\":[\"manifest_url\",\"movie_library_id\",\"series_library_id\"],\"additionalProperties\":false}",
       "required": true,
       "admin_form": {
         "fields": [
@@ -104,6 +104,30 @@
             "description": "Writable path used to persist queued media across plugin restarts.",
             "control": "ADMIN_FORM_CONTROL_TEXT",
             "placeholder": ".silo-virtual-library-monitored.json"
+          },
+          {
+            "key": "enable_quality_profiles",
+            "label": "Enable Quality Profiles",
+            "description": "Use configurable quality profiles to match AIOStreams.",
+            "control": "ADMIN_FORM_CONTROL_SWITCH"
+          },
+          {
+            "key": "quality_profiles",
+            "label": "Quality Profiles",
+            "description": "Configure profiles with constraints.",
+            "control": "ADMIN_FORM_CONTROL_JSON"
+          },
+          {
+            "key": "fallback_to_any_stream",
+            "label": "Fallback to Any Stream",
+            "description": "Return 1 stream if no profiles match.",
+            "control": "ADMIN_FORM_CONTROL_SWITCH"
+          },
+          {
+            "key": "max_versions_per_item",
+            "label": "Max Versions per item",
+            "description": "Maximum versions to return.",
+            "control": "ADMIN_FORM_CONTROL_NUMBER"
           }
         ],
         "submit_label": "Save AIOStreams connection"
