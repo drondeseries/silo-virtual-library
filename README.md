@@ -37,6 +37,30 @@ When an item becomes playable, the plugin submits a typed virtual-media registra
 
 The server administrator configures the AIOStreams manifest URL, TMDB token, Movies library ID, and Series library ID in the plugin settings. Normal users only interact with Request and Play.
 
+## AIOStreams Quality Profiles
+
+You can enable **Quality Profiles** in the plugin settings to automatically match and register multiple quality versions (e.g. `4K HDR`, `1080p`) per movie or episode.
+
+1. Toggle **Enable Quality Profiles** to `true`.
+2. Paste single-line JSON configuration into the **Quality Profiles** field.
+
+### Ready-to-use Single-Line JSON Configurations
+
+**4K HDR + 1080p (Recommended)**:
+```json
+[{"label":"4K HDR","resolution":"2160p","include_regex":"(?i)(2160p|4k)","exclude_regex":"(?i)(cam|ts|telecine)","preferred_order":1},{"label":"1080p","resolution":"1080p","include_regex":"(?i)1080p","exclude_regex":"(?i)(cam|ts|telecine)","preferred_order":2}]
+```
+
+**4K + 1080p + 720p**:
+```json
+[{"label":"4K Ultra HD","resolution":"2160p","exclude_regex":"(?i)(cam|ts)","preferred_order":1},{"label":"1080p Full HD","resolution":"1080p","exclude_regex":"(?i)(cam|ts)","preferred_order":2},{"label":"720p HD","resolution":"720p","exclude_regex":"(?i)(cam|ts)","preferred_order":3}]
+```
+
+**Simple Resolution Only**:
+```json
+[{"label":"4K HDR","resolution":"2160p"},{"label":"1080p","resolution":"1080p"}]
+```
+
 Silo Server collection imports can also enable **Zero-storage virtual playback**. When enabled on
 an MDBList, TMDB, or Trakt collection, the server materializes unmatched entries as virtual catalog
 items and uses this plugin's existing `virtual-playback` route for resolution. Future collection
