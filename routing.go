@@ -509,6 +509,21 @@ func cleanTVMazeSummary(value string) string {
 }
 
 func (m *mediaMonitor) fetchTVMaze(ctx context.Context, item monitoredMedia) (monitoredMedia, error) {
+	if item.IMDbID == "" && item.TVDBID == "" && item.TMDBID != "" {
+		m.mu.Lock()
+		apiKey := m.config.TMDBAPIKey
+		m.mu.Unlock()
+		if apiKey != "" {
+			if externalIDs, err := fetchTMDBExternalIDs(ctx, item.TMDBID, apiKey); err == nil {
+				if externalIDs.IMDbID != "" {
+					item.IMDbID = externalIDs.IMDbID
+				}
+				if externalIDs.TVDBID > 0 {
+					item.TVDBID = strconv.Itoa(externalIDs.TVDBID)
+				}
+			}
+		}
+	}
 	lookup, err := url.Parse(strings.TrimRight(tvmazeBaseURL, "/") + "/lookup/shows")
 	if err != nil {
 		return item, err
@@ -723,3 +738,34 @@ func fetchTMDBRelease(ctx context.Context, id, key string) (time.Time, error) {
 	}
 	return time.Time{}, errNoHomeRelease
 }
+
+type tmdbExternalIDs struct {
+	IMDbID string `json:"imdb_id"`
+	TVDBID int    `json:"tvdb_id"`
+}
+
+func fetchTMDBExternalIDs(ctx context.Context, tmdbID, key string) (tmdbExternalIDs, error) {
+	endpoint := strings.TrimRight(tmdbBaseURL, "/") + "/tv/" + url.PathEscape(tmdbID) + "/external_ids"
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if strings.Count(key, ".") == 2 {
+		req.Header.Set("Authorization", "Bearer "+key)
+	} else {
+		q := req.URL.Query()
+		q.Set("api_key", key)
+		req.URL.RawQuery = q.Encode()
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return tmdbExternalIDs{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return tmdbExternalIDs{}, fmt.Errorf("TMDB external_ids HTTP %d", resp.StatusCode)
+	}
+	var out tmdbExternalIDs
+	if err = json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(&out); err != nil {
+		return tmdbExternalIDs{}, err
+	}
+	return out, nil
+}
+
