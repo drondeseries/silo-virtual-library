@@ -45,6 +45,9 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -63,3 +66,32 @@ jobs:
             release/plugin-linux-arm64
             release/plugin-darwin-arm64
             release/checksums.txt
+      - name: Update catalog.json on main
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          TAG="${GITHUB_REF_NAME}"
+
+          LINUX_AMD64_HASH=$(sha256sum release/plugin-linux-amd64 | awk '{print $1}')
+          LINUX_ARM64_HASH=$(sha256sum release/plugin-linux-arm64 | awk '{print $1}')
+          DARWIN_ARM64_HASH=$(sha256sum release/plugin-darwin-arm64 | awk '{print $1}')
+
+          jq --arg ver "$VERSION" \
+             --arg tag "$TAG" \
+             --arg amd64 "$LINUX_AMD64_HASH" \
+             --arg arm64 "$LINUX_ARM64_HASH" \
+             --arg darwin "$DARWIN_ARM64_HASH" \
+             '.plugins[0].manifest.version = $ver |
+              .plugins[0].checksums_url = ("https://github.com/drondeseries/silo-virtual-library/releases/download/" + $tag + "/checksums.txt") |
+              .plugins[0].binaries["linux/amd64"].url = ("https://github.com/drondeseries/silo-virtual-library/releases/download/" + $tag + "/plugin-linux-amd64") |
+              .plugins[0].binaries["linux/amd64"].checksum = $amd64 |
+              .plugins[0].binaries["linux/arm64"].url = ("https://github.com/drondeseries/silo-virtual-library/releases/download/" + $tag + "/plugin-linux-arm64") |
+              .plugins[0].binaries["linux/arm64"].checksum = $arm64 |
+              .plugins[0].binaries["darwin/arm64"].url = ("https://github.com/drondeseries/silo-virtual-library/releases/download/" + $tag + "/plugin-darwin-arm64") |
+              .plugins[0].binaries["darwin/arm64"].checksum = $darwin' catalog.json > catalog.tmp && mv catalog.tmp catalog.json
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add catalog.json
+          git commit -m "chore(catalog): auto-update catalog.json for release ${TAG}" || exit 0
+          git push origin main
+
