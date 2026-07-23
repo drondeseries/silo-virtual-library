@@ -1,6 +1,6 @@
 module github.com/drondeseries/silo-virtual-library
 
-replace github.com/Silo-Server/silo-plugin-sdk => /opt/altmount/github/silo-plugin-sdk
+replace github.com/Silo-Server/silo-plugin-sdk => github.com/drondeseries/silo-plugin-sdk v0.10.1-virtual.3
 
 go 1.26.0
 
