@@ -514,7 +514,7 @@ func (m *mediaMonitor) fetchTVMaze(ctx context.Context, item monitoredMedia) (mo
 		apiKey := m.config.TMDBAPIKey
 		m.mu.Unlock()
 		if apiKey != "" {
-			if externalIDs, err := fetchTMDBExternalIDs(ctx, item.TMDBID, apiKey); err == nil {
+			if externalIDs, err := fetchTMDBExternalIDs(ctx, item.MediaType, item.TMDBID, apiKey); err == nil {
 				if externalIDs.IMDbID != "" {
 					item.IMDbID = externalIDs.IMDbID
 				}
@@ -621,6 +621,11 @@ func (m *mediaMonitor) movieRelease(ctx context.Context, item monitoredMedia) (t
 		release, err := fetchTMDBRelease(ctx, item.TMDBID, cfg.TMDBAPIKey)
 		if err == nil || errors.Is(err, errNoHomeRelease) {
 			return release, err
+		}
+	}
+	if item.IMDbID == "" && item.TMDBID != "" && cfg.TMDBAPIKey != "" {
+		if ext, err := fetchTMDBExternalIDs(ctx, item.MediaType, item.TMDBID, cfg.TMDBAPIKey); err == nil && ext.IMDbID != "" {
+			item.IMDbID = ext.IMDbID
 		}
 	}
 	if item.IMDbID == "" {
@@ -744,8 +749,12 @@ type tmdbExternalIDs struct {
 	TVDBID int    `json:"tvdb_id"`
 }
 
-func fetchTMDBExternalIDs(ctx context.Context, tmdbID, key string) (tmdbExternalIDs, error) {
-	endpoint := strings.TrimRight(tmdbBaseURL, "/") + "/tv/" + url.PathEscape(tmdbID) + "/external_ids"
+func fetchTMDBExternalIDs(ctx context.Context, mediaType, tmdbID, key string) (tmdbExternalIDs, error) {
+	kind := "tv"
+	if mediaType == "movie" {
+		kind = "movie"
+	}
+	endpoint := strings.TrimRight(tmdbBaseURL, "/") + "/" + kind + "/" + url.PathEscape(tmdbID) + "/external_ids"
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if strings.Count(key, ".") == 2 {
 		req.Header.Set("Authorization", "Bearer "+key)
