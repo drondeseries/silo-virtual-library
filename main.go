@@ -26,15 +26,15 @@ import (
 )
 
 const (
-	virtualPathPrefix = "aiostreams://"
-	configKey         = "aiostreams"
+	virtualPathPrefix = "virtual://"
+	configKey         = "streaming"
 	maxResponseBytes  = 4 << 20
 )
 
 //go:embed manifest.json
 var manifestJSON []byte
 
-type aioStreamsResolver interface {
+type streamResolver interface {
 	Resolve(context.Context, string) (string, error)
 	GetVariants(context.Context, string) []runtimehost.VirtualMediaVariant
 }
@@ -43,7 +43,7 @@ type resolverConfig struct {
 	AllowInsecure bool
 	Quality       QualityConfig
 }
-type aioStreamsClient struct {
+type manifestStreamResolver struct {
 	client *http.Client
 	mu     sync.RWMutex
 	config resolverConfig
@@ -53,19 +53,19 @@ type stremioResponse struct {
 	Streams []StreamCandidate `json:"streams"`
 }
 
-func (c *aioStreamsClient) Configure(config resolverConfig) {
+func (c *manifestStreamResolver) Configure(config resolverConfig) {
 	c.mu.Lock()
 	c.config = config
 	c.mu.Unlock()
 }
 
-func (c *aioStreamsClient) Resolve(ctx context.Context, virtualPath string) (string, error) {
+func (c *manifestStreamResolver) Resolve(ctx context.Context, virtualPath string) (string, error) {
 	candidates, _, _, err := c.GetCandidates(ctx, virtualPath)
 	if err != nil {
 		return "", err
 	}
 	if len(candidates) == 0 {
-		return "", errors.New("AIOStreams returned no streams")
+		return "", errors.New("streaming provider returned no streams")
 	}
 
 	u, _ := url.Parse(virtualPath)
@@ -112,12 +112,12 @@ func (c *aioStreamsClient) Resolve(ctx context.Context, virtualPath string) (str
 	return "", fmt.Errorf("no stream matches profile %q", requestedProfile)
 }
 
-func (c *aioStreamsClient) GetCandidates(ctx context.Context, virtualPath string) ([]StreamCandidate, string, string, error) {
+func (c *manifestStreamResolver) GetCandidates(ctx context.Context, virtualPath string) ([]StreamCandidate, string, string, error) {
 	mediaType, mediaID, err := parseVirtualPath(virtualPath)
 	if err != nil {
 		return nil, mediaType, mediaID, err
 	}
-	
+
 	// strip query from mediaID
 	if idx := strings.Index(mediaID, "?"); idx != -1 {
 		mediaID = mediaID[:idx]
@@ -133,20 +133,20 @@ func (c *aioStreamsClient) GetCandidates(ctx context.Context, virtualPath string
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		return nil, mediaType, mediaID, fmt.Errorf("create AIOStreams request: %w", err)
+		return nil, mediaType, mediaID, fmt.Errorf("create streaming provider request: %w", err)
 	}
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return nil, mediaType, mediaID, fmt.Errorf("request AIOStreams: %w", err)
+		return nil, mediaType, mediaID, fmt.Errorf("request streaming provider: %w", err)
 	}
 	defer resp.Body.Close()
 	var validCandidates []StreamCandidate
 	if resp.StatusCode != http.StatusOK {
-		return validCandidates, mediaType, mediaID, fmt.Errorf("AIOStreams returned status %d", resp.StatusCode)
+		return validCandidates, mediaType, mediaID, fmt.Errorf("streaming provider returned status %d", resp.StatusCode)
 	}
 	var payload stremioResponse
 	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(&payload); err != nil {
-		return validCandidates, mediaType, mediaID, fmt.Errorf("decode AIOStreams response: %w", err)
+		return validCandidates, mediaType, mediaID, fmt.Errorf("decode streaming provider response: %w", err)
 	}
 	for i, stream := range payload.Streams {
 		candidate, parseErr := url.Parse(strings.TrimSpace(stream.URL))
@@ -159,12 +159,12 @@ func (c *aioStreamsClient) GetCandidates(ctx context.Context, virtualPath string
 	return validCandidates, mediaType, mediaID, nil
 }
 
-func (c *aioStreamsClient) GetVariants(ctx context.Context, virtualPath string) []runtimehost.VirtualMediaVariant {
+func (c *manifestStreamResolver) GetVariants(ctx context.Context, virtualPath string) []runtimehost.VirtualMediaVariant {
 	var variants []runtimehost.VirtualMediaVariant
 	c.mu.RLock()
 	config := c.config.Quality
 	c.mu.RUnlock()
-	
+
 	if !config.EnableProfiles {
 		return variants
 	}
@@ -202,7 +202,7 @@ func (c *aioStreamsClient) GetVariants(ctx context.Context, virtualPath string) 
 
 func parseVirtualPath(virtualPath string) (string, string, error) {
 	if !strings.HasPrefix(virtualPath, virtualPathPrefix) {
-		return "", "", errors.New("path is not an aiostreams URI")
+		return "", "", errors.New("path is not an virtual URI")
 	}
 	cleanPath := virtualPath
 	if idx := strings.Index(cleanPath, "?"); idx != -1 {
@@ -210,15 +210,15 @@ func parseVirtualPath(virtualPath string) (string, string, error) {
 	}
 	parts := strings.Split(strings.Trim(strings.TrimPrefix(cleanPath, virtualPathPrefix), "/"), "/")
 	if len(parts) < 2 {
-		return "", "", errors.New("aiostreams URI must contain a media type and identifier")
+		return "", "", errors.New("virtual URI must contain a media type and identifier")
 	}
 	mediaType := strings.ToLower(parts[0])
 	if mediaType != "movie" && mediaType != "series" && mediaType != "anime" {
-		return "", "", fmt.Errorf("unsupported aiostreams media type %q", mediaType)
+		return "", "", fmt.Errorf("unsupported virtual media type %q", mediaType)
 	}
 	mediaID := strings.Join(parts[1:], ":")
 	if strings.ContainsAny(mediaID, "?#") || strings.Contains(mediaID, "..") {
-		return "", "", errors.New("aiostreams URI contains an invalid identifier")
+		return "", "", errors.New("virtual URI contains an invalid identifier")
 	}
 	return mediaType, mediaID, nil
 }
@@ -230,13 +230,13 @@ func streamEndpoint(manifestURL, mediaType, mediaID string) (string, error) {
 func streamEndpointWithPolicy(manifestURL, mediaType, mediaID string, allowInsecure bool) (string, error) {
 	manifest, err := url.Parse(strings.TrimSpace(manifestURL))
 	if err != nil || manifest.Host == "" || (manifest.Scheme != "https" && manifest.Scheme != "http") || (manifest.Scheme != "https" && !allowInsecure) {
-		return "", errors.New("a valid HTTPS AIOStreams manifest URL is required")
+		return "", errors.New("a valid HTTPS streaming provider manifest URL is required")
 	}
 	if manifest.Scheme == "http" && !isPrivateHost(manifest.Hostname()) {
-		return "", errors.New("insecure HTTP is allowed only for private/local AIOStreams hosts")
+		return "", errors.New("insecure HTTP is allowed only for private/local streaming provider hosts")
 	}
 	if !strings.HasSuffix(manifest.Path, "/manifest.json") {
-		return "", errors.New("AIOStreams URL must end in /manifest.json")
+		return "", errors.New("streaming provider URL must end in /manifest.json")
 	}
 	manifest.Path = strings.TrimSuffix(manifest.Path, "/manifest.json") + "/stream/" + url.PathEscape(mediaType) + "/" + url.PathEscape(mediaID) + ".json"
 	manifest.RawQuery = ""
@@ -247,7 +247,7 @@ func streamEndpointWithPolicy(manifestURL, mediaType, mediaID string, allowInsec
 func isPrivateHost(host string) bool {
 	host = strings.TrimSpace(strings.ToLower(host))
 	// Single-label names are normally Docker/Kubernetes service names (for
-	// example "aiostreams" or "altmount") and are not public DNS names.
+	// example "virtual" or "altmount") and are not public DNS names.
 	if host == "localhost" || strings.HasSuffix(host, ".local") || !strings.Contains(host, ".") {
 		return true
 	}
@@ -266,7 +266,7 @@ type runtimeServer struct {
 	pb.UnimplementedRequestRouterServer
 	pb.UnimplementedScheduledTaskServer
 	manifest *pb.PluginManifest
-	resolver *aioStreamsClient
+	resolver *manifestStreamResolver
 	monitor  *mediaMonitor
 	library  virtualMediaRegistrar
 }
@@ -285,11 +285,11 @@ func (s *runtimeServer) Configure(_ context.Context, request *pb.ConfigureReques
 		if _, err := streamEndpointWithPolicy(manifestURL, "movie", "tt0000001", allowInsecure); err != nil {
 			return nil, err
 		}
-		
+
 		var qc QualityConfig
 		qc.EnableProfiles, _ = values["enable_quality_profiles"].(bool)
 		qc.FallbackToAnyStream, _ = values["fallback_to_any_stream"].(bool)
-		
+
 		if maxV, ok := values["max_versions_per_item"].(float64); ok {
 			qc.MaxVersionsPerItem = int(maxV)
 		} else {
@@ -300,14 +300,30 @@ func (s *runtimeServer) Configure(_ context.Context, request *pb.ConfigureReques
 			for _, pr := range profilesRaw {
 				if pMap, ok := pr.(map[string]interface{}); ok {
 					var p QualityProfile
-					if v, ok := pMap["label"].(string); ok { p.Label = v }
-					if v, ok := pMap["resolution"].(string); ok { p.Resolution = v }
-					if v, ok := pMap["include_regex"].(string); ok { p.IncludeRegex = v }
-					if v, ok := pMap["exclude_regex"].(string); ok { p.ExcludeRegex = v }
-					if v, ok := pMap["preferred_order"].(float64); ok { p.PreferredOrder = int(v) }
-					if v, ok := pMap["codec_video"].(string); ok { p.CodecVideo = v }
-					if v, ok := pMap["codec_audio"].(string); ok { p.CodecAudio = v }
-					if v, ok := pMap["hdr"].(string); ok { p.HDR = v }
+					if v, ok := pMap["label"].(string); ok {
+						p.Label = v
+					}
+					if v, ok := pMap["resolution"].(string); ok {
+						p.Resolution = v
+					}
+					if v, ok := pMap["include_regex"].(string); ok {
+						p.IncludeRegex = v
+					}
+					if v, ok := pMap["exclude_regex"].(string); ok {
+						p.ExcludeRegex = v
+					}
+					if v, ok := pMap["preferred_order"].(float64); ok {
+						p.PreferredOrder = int(v)
+					}
+					if v, ok := pMap["codec_video"].(string); ok {
+						p.CodecVideo = v
+					}
+					if v, ok := pMap["codec_audio"].(string); ok {
+						p.CodecAudio = v
+					}
+					if v, ok := pMap["hdr"].(string); ok {
+						p.HDR = v
+					}
 					qc.Profiles = append(qc.Profiles, p)
 				}
 			}
@@ -342,7 +358,7 @@ func (s *runtimeServer) Configure(_ context.Context, request *pb.ConfigureReques
 
 type playbackServer struct {
 	pb.UnimplementedHttpRoutesServer
-	resolver aioStreamsResolver
+	resolver streamResolver
 }
 
 func (s *playbackServer) Handle(ctx context.Context, request *pb.HandleHTTPRequest) (*pb.HandleHTTPResponse, error) {
@@ -376,7 +392,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "load manifest: %v\n", err)
 		os.Exit(1)
 	}
-	resolver := &aioStreamsClient{client: &http.Client{Timeout: 45 * time.Second}}
+	resolver := &manifestStreamResolver{client: &http.Client{Timeout: 45 * time.Second}}
 	monitor := newMediaMonitor(resolver, hclog.New(&hclog.LoggerOptions{Name: "silo-virtual-library-monitor"}))
 	runtime := &runtimeServer{manifest: manifest, resolver: resolver, monitor: monitor}
 	sdkruntime.Serve(sdkruntime.ServeConfig{

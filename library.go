@@ -20,10 +20,10 @@ type siloLibrary struct {
 	host            *runtimehost.Client
 	movieLibraryID  int
 	seriesLibraryID int
-	resolver        aioStreamsResolver
+	resolver        streamResolver
 }
 
-func newSiloLibrary(host *runtimehost.Client, movieLibraryID, seriesLibraryID int, resolver aioStreamsResolver) (*siloLibrary, error) {
+func newSiloLibrary(host *runtimehost.Client, movieLibraryID, seriesLibraryID int, resolver streamResolver) (*siloLibrary, error) {
 	if host == nil {
 		return nil, errors.New("Silo host services are not ready")
 	}
