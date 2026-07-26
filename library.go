@@ -87,7 +87,10 @@ func (l *siloLibrary) Register(ctx context.Context, item monitoredMedia) error {
 		req.SourceKey = "monitor"
 	}
 	if item.MediaType == "movie" {
-		req.Variants = configuredVariants(l.resolver, virtualURI)
+		req.Variants = l.resolver.GetVariants(ctx, virtualURI)
+		if len(req.Variants) == 0 {
+			req.Variants = configuredVariants(l.resolver, virtualURI)
+		}
 	}
 	_, err := l.host.UpsertVirtualMedia(ctx, req)
 	if err != nil {

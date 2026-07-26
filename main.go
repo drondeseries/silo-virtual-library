@@ -79,7 +79,21 @@ func (c *manifestStreamResolver) Resolve(ctx context.Context, virtualPath string
 	c.mu.RUnlock()
 
 	if !config.EnableProfiles || requestedProfile == "" {
+		if requestedResult := u.Query().Get("result"); requestedResult != "" {
+			for _, candidate := range candidates {
+				if candidateVariantID(candidate) == requestedResult {
+					return candidate.URL, nil
+				}
+			}
+		}
 		return candidates[0].URL, nil
+	}
+	if requestedResult := u.Query().Get("result"); requestedResult != "" {
+		for _, candidate := range candidates {
+			if candidateVariantID(candidate) == requestedResult && matchProfile(candidate, profileByLabel(config.Profiles, requestedProfile)) {
+				return candidate.URL, nil
+			}
+		}
 	}
 
 	var matchProfileObj QualityProfile
@@ -168,12 +182,16 @@ func (c *manifestStreamResolver) GetVariants(ctx context.Context, virtualPath st
 	if !config.EnableProfiles {
 		return variants
 	}
-
 	candidates, _, _, err := c.GetCandidates(ctx, virtualPath)
 	if err != nil || len(candidates) == 0 {
 		return variants
 	}
+	maxVersions := config.MaxVersionsPerItem
+	if maxVersions <= 0 {
+		maxVersions = len(candidates)
+	}
 
+	seen := make(map[string]struct{})
 	for _, p := range config.Profiles {
 		var matched []StreamCandidate
 		for _, cand := range candidates {
@@ -183,21 +201,49 @@ func (c *manifestStreamResolver) GetVariants(ctx context.Context, virtualPath st
 		}
 		if len(matched) > 0 {
 			sortCandidatesForProfile(matched, p)
-			top := matched[0]
-			variants = append(variants, runtimehost.VirtualMediaVariant{
-				VirtualURI: virtualPath + "?profile=" + url.QueryEscape(p.Label),
-				Label:      p.Label,
-				Resolution: top.Resolution,
-				CodecVideo: top.CodecVideo,
-				CodecAudio: top.CodecAudio,
-				HDR:        top.HDR,
-			})
-			if len(variants) >= config.MaxVersionsPerItem {
-				break
+			for _, candidate := range matched {
+				id := candidateVariantID(candidate)
+				if _, ok := seen[id]; ok {
+					continue
+				}
+				seen[id] = struct{}{}
+				values := url.Values{}
+				values.Set("profile", p.Label)
+				values.Set("result", id)
+				label := strings.TrimSpace(p.Label + " · " + candidateDisplayName(candidate))
+				variants = append(variants, runtimehost.VirtualMediaVariant{VirtualURI: virtualPath + "?" + values.Encode(), Label: label, Resolution: candidate.Resolution, CodecVideo: candidate.CodecVideo, CodecAudio: candidate.CodecAudio, HDR: candidate.HDR})
+				if len(variants) >= maxVersions {
+					return variants
+				}
 			}
 		}
 	}
 	return variants
+}
+
+func profileByLabel(profiles []QualityProfile, label string) QualityProfile {
+	for _, profile := range profiles {
+		if strings.EqualFold(profile.Label, label) {
+			return profile
+		}
+	}
+	return QualityProfile{}
+}
+
+func candidateVariantID(candidate StreamCandidate) string {
+	digest := sha256.Sum256([]byte(candidate.URL))
+	return hex.EncodeToString(digest[:6])
+}
+
+func candidateDisplayName(candidate StreamCandidate) string {
+	name := strings.TrimSpace(candidate.Name)
+	if name == "" {
+		name = strings.TrimSpace(candidate.Title)
+	}
+	if name == "" {
+		name = candidate.Resolution
+	}
+	return name
 }
 
 // GetConfiguredVariants exposes profile-specific virtual URIs without querying

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 
 	pb "github.com/Silo-Server/silo-plugin-sdk/pkg/pluginproto/silo/plugin/v1"
@@ -173,6 +174,13 @@ func TestQualityProfiles(t *testing.T) {
 	variants := resolver.GetVariants(ctx, "virtual://movie/tt0133093")
 	if len(variants) != 4 {
 		t.Fatalf("Expected 4 variants, got %d", len(variants))
+	}
+	if !strings.Contains(variants[0].VirtualURI, "result=") {
+		t.Fatalf("Expected provider result identifier in variant URI: %s", variants[0].VirtualURI)
+	}
+	selected, err := resolver.Resolve(ctx, variants[0].VirtualURI)
+	if err != nil || selected != "https://stream.example/movie3.mkv" {
+		t.Fatalf("Expected variant to resolve movie3.mkv, got %v %v", selected, err)
 	}
 
 	qc.FallbackToAnyStream = false

@@ -118,7 +118,7 @@ func sourceScore(src string) int {
 }
 
 func matchProfile(c StreamCandidate, p QualityProfile) bool {
-	fullText := c.Name + " " + c.Description + " " + c.Title
+	fullText := c.Name + " " + c.Description + " " + c.Title + " " + c.URL
 	if p.exclude != nil && p.exclude.MatchString(fullText) {
 		return false
 	}
