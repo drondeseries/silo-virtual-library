@@ -243,6 +243,9 @@ func candidateDisplayName(candidate StreamCandidate) string {
 	if name == "" {
 		name = candidate.Resolution
 	}
+	if size := streamSize(candidate); size != "" && !strings.Contains(strings.ToLower(name), strings.ToLower(size)) {
+		name += " · " + size
+	}
 	return name
 }
 

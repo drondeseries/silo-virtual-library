@@ -239,3 +239,10 @@ func TestDecodeQualityProfilesAcceptsJSONStringsAndArrays(t *testing.T) {
 		})
 	}
 }
+
+func TestCandidateDisplayNameIncludesProviderSize(t *testing.T) {
+	name := candidateDisplayName(StreamCandidate{Name: "AltMount FHD", Title: "Movie 1080p WEB-DL 5.69 GB"})
+	if !strings.Contains(name, "5.69 GB") {
+		t.Fatalf("candidate display name = %q, want provider size", name)
+	}
+}

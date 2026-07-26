@@ -1,9 +1,12 @@
 package main
 
 import (
+	"regexp"
 	"sort"
 	"strings"
 )
+
+var streamSizePattern = regexp.MustCompile(`(?i)\b\d+(?:\.\d+)?\s*(?:TB|GB|MB)\b`)
 
 type StreamCandidate struct {
 	URL           string
@@ -87,6 +90,10 @@ func parseStreamDetails(s *StreamCandidate) {
 	} else if strings.Contains(fullText, "hdtv") {
 		s.SourceType = "hdtv"
 	}
+}
+
+func streamSize(s StreamCandidate) string {
+	return streamSizePattern.FindString(s.Name + " " + s.Description + " " + s.Title)
 }
 
 func resolutionScore(res string) int {
