@@ -32,15 +32,15 @@ var (
 
 type monitorConfig struct{ TMDBAPIKey, File string }
 type monitoredMedia struct {
-	Key, MediaType, Title, StreamID, IMDbID, TMDBID, TVDBID string
-	MediaFolderID                                           int       `json:"media_folder_id,omitempty"`
-	Year                                                    int32     `json:"year"`
-	Runtime                                                 int       `json:"runtime,omitempty"`
-	Release                                                 time.Time `json:"release"`
-	Ready                                                   bool      `json:"ready"`
-	Overview, Poster, Backdrop                              string
-	Genres                                                  []string
-	Episodes                                                []virtualEpisode
+	Key, MediaType, Title, StreamID, IMDbID, TMDBID, TVDBID, SourceKey string
+	MediaFolderID                                                      int       `json:"media_folder_id,omitempty"`
+	Year                                                               int32     `json:"year"`
+	Runtime                                                            int       `json:"runtime,omitempty"`
+	Release                                                            time.Time `json:"release"`
+	Ready                                                              bool      `json:"ready"`
+	Overview, Poster, Backdrop                                         string
+	Genres                                                             []string
+	Episodes                                                           []virtualEpisode
 }
 type virtualEpisode struct {
 	Season, Episode            int
@@ -50,7 +50,7 @@ type virtualEpisode struct {
 }
 type mediaMonitor struct {
 	mu        sync.Mutex
-	resolver  aioStreamsResolver
+	resolver  streamResolver
 	logger    hclog.Logger
 	config    monitorConfig
 	items     map[string]monitoredMedia
@@ -77,15 +77,7 @@ func (m *mediaMonitor) register(ctx context.Context, item monitoredMedia) error 
 	return registrar.Register(ctx, item)
 }
 
-func (m *mediaMonitor) prewarm(path string) {
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		_, _ = m.resolver.Resolve(ctx, path)
-	}()
-}
-
-func newMediaMonitor(resolver aioStreamsResolver, logger hclog.Logger) *mediaMonitor {
+func newMediaMonitor(resolver streamResolver, logger hclog.Logger) *mediaMonitor {
 	return &mediaMonitor{resolver: resolver, logger: logger, config: monitorConfig{File: ".silo-virtual-library-monitored.json"}, items: map[string]monitoredMedia{}}
 }
 func (m *mediaMonitor) Configure(c monitorConfig) {
@@ -163,13 +155,28 @@ func mediaFromRequest(r *pb.RequestDescriptor) (monitoredMedia, error) {
 	ids := r.GetExternalIds()
 	imdb, tmdb, tvdb := strings.TrimSpace(ids["imdb"]), strings.TrimSpace(ids["tmdb"]), strings.TrimSpace(ids["tvdb"])
 	streamID := imdb
-	if streamID == "" && tmdb != "" {
+	if streamID == "" && typ == "series" && tvdb != "" {
+		streamID = "tvdb:" + tvdb
+	} else if streamID == "" && tmdb != "" {
 		streamID = "tmdb:" + tmdb
 	}
 	if streamID == "" {
-		return monitoredMedia{}, errors.New("IMDb or TMDB ID is required")
+		return monitoredMedia{}, errors.New("IMDb, TVDB, or TMDB ID is required")
 	}
-	return monitoredMedia{Key: typ + ":" + streamID, MediaType: typ, Title: strings.TrimSpace(r.GetTitle()), Year: r.GetYear(), StreamID: streamID, IMDbID: imdb, TMDBID: tmdb, TVDBID: tvdb}, nil
+	return monitoredMedia{Key: typ + ":" + streamID, MediaType: typ, Title: strings.TrimSpace(r.GetTitle()), Year: r.GetYear(), StreamID: streamID, IMDbID: imdb, TMDBID: tmdb, TVDBID: tvdb, SourceKey: "request:" + typ + ":" + streamID}, nil
+}
+
+func virtualContentID(item monitoredMedia) string {
+	if item.MediaType == "series" && item.TVDBID != "" {
+		return "series-tvdb-" + item.TVDBID
+	}
+	if item.TMDBID != "" {
+		return item.MediaType + "-tmdb-" + item.TMDBID
+	}
+	if item.IMDbID != "" {
+		return item.MediaType + "-imdb-" + item.IMDbID
+	}
+	return ""
 }
 
 func (m *mediaMonitor) evaluate(ctx context.Context, item monitoredMedia) (monitoredMedia, string) {
@@ -212,7 +219,7 @@ func (m *mediaMonitor) evaluate(ctx context.Context, item monitoredMedia) (monit
 	}
 	if item.MediaType == "series" {
 		aired := make([]virtualEpisode, 0, len(item.Episodes))
-		for _, episode := range item.Episodes {
+		for _, episode := range episodeList(item.Episodes) {
 			if episode.Season <= 0 || episode.Episode <= 0 || episode.Released.After(now) {
 				continue
 			}
@@ -221,12 +228,19 @@ func (m *mediaMonitor) evaluate(ctx context.Context, item monitoredMedia) (monit
 		item.Episodes = aired
 		item.Ready = len(aired) > 0
 		if !item.Ready {
-			return item, "No episodes have aired yet"
+			return item, "Series registered; monitoring for aired episodes"
 		}
 		return item, fmt.Sprintf("%d aired episodes registered for on-demand playback", len(aired))
 	}
 	item.Ready = true
 	return item, "Movie is available for home media"
+}
+
+func episodeList(episodes []virtualEpisode) []virtualEpisode {
+	if episodes == nil {
+		return []virtualEpisode{}
+	}
+	return episodes
 }
 
 func episodeMetadataComplete(episodes []virtualEpisode) bool {
@@ -267,7 +281,7 @@ func (m *mediaMonitor) probeEpisodes(ctx context.Context, streamID string, episo
 				return
 			}
 			defer func() { <-sem }()
-			path := fmt.Sprintf("aiostreams://series/%s/%d/%d", streamID, episode.Season, episode.Episode)
+			path := fmt.Sprintf("virtual://series/%s/%d/%d", streamID, episode.Season, episode.Episode)
 			if _, err := m.resolver.Resolve(ctx, path); err == nil {
 				mu.Lock()
 				playable = append(playable, episode)
@@ -285,22 +299,18 @@ func (m *mediaMonitor) probeEpisodes(ctx context.Context, streamID string, episo
 	return playable
 }
 
-func (s *runtimeServer) Fulfill(ctx context.Context, req *pb.FulfillRequest) (*pb.FulfillResponse, error) {
+func (s *runtimeServer) Fulfill(ctx context.Context, req *pb.FulfillRequest) (resp *pb.FulfillResponse, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			s.monitor.logger.Error("panic in Fulfill", "error", r)
+			err = fmt.Errorf("plugin fulfill panic: %v", r)
+		}
+	}()
 	item, err := mediaFromRequest(req.GetRequest())
 	if err != nil {
 		return nil, err
 	}
-	// Explicit request-time prewarming only. Scheduled monitoring never calls
-	// this path, so theatrical titles are not repeatedly sent upstream.
-	if item.MediaType == "movie" {
-		s.monitor.prewarm("aiostreams://movie/" + strings.ReplaceAll(item.StreamID, ":", "/"))
-	}
 	item, message := s.monitor.evaluate(ctx, item)
-	if item.MediaType == "series" && len(item.Episodes) > 0 {
-		for _, episode := range item.Episodes {
-			s.monitor.prewarm(fmt.Sprintf("aiostreams://series/%s/%d/%d", item.StreamID, episode.Season, episode.Episode))
-		}
-	}
 	if len(req.GetConnections()) > 0 {
 		folderID, folderErr := configuredFolderID(req.GetConnections()[0].GetConfig().AsMap()["media_folder_id"])
 		if folderErr != nil {
@@ -314,10 +324,8 @@ func (s *runtimeServer) Fulfill(ctx context.Context, req *pb.FulfillRequest) (*p
 		}
 		message = "Virtual media registered in Silo library"
 	}
-	if !item.Ready || item.MediaType == "series" {
-		if err := s.monitor.remember(item); err != nil {
-			return nil, fmt.Errorf("persist monitored media: %w", err)
-		}
+	if err := s.monitor.remember(item); err != nil {
+		s.monitor.logger.Error("persist monitored media", "key", item.Key, "error", err)
 	}
 	status, external := "queued", "monitored"
 	if item.Ready {
@@ -374,11 +382,11 @@ func (s *runtimeServer) Validate(context.Context, *pb.ValidateRequest) (*pb.Vali
 	return &pb.ValidateResponse{FieldErrors: map[string]string{}}, nil
 }
 func (s *runtimeServer) TestConnection(ctx context.Context, _ *pb.TestConnectionRequest) (*pb.TestConnectionResponse, error) {
-	_, err := s.resolver.Resolve(ctx, "aiostreams://movie/tt0133093")
+	_, err := s.resolver.Resolve(ctx, "virtual://movie/tt0133093")
 	if err != nil {
 		return &pb.TestConnectionResponse{Ok: false, Message: err.Error()}, nil
 	}
-	return &pb.TestConnectionResponse{Ok: true, Message: "Connected to AIOStreams"}, nil
+	return &pb.TestConnectionResponse{Ok: true, Message: "Connected to streaming provider"}, nil
 }
 func (s *runtimeServer) Run(ctx context.Context, req *pb.RunScheduledTaskRequest) (*pb.RunScheduledTaskResponse, error) {
 	if req.GetTaskKey() != "" && req.GetTaskKey() != "monitor-media" {
@@ -405,7 +413,15 @@ func (s *runtimeServer) Run(ctx context.Context, req *pb.RunScheduledTaskRequest
 		items = append(items, item)
 	}
 	ready, pending := 0, 0
+	keepBySource := make(map[string][]string)
 	for _, item := range items {
+		source := item.SourceKey
+		if source == "" {
+			source = "monitor"
+		}
+		if _, exists := keepBySource[source]; !exists {
+			keepBySource[source] = nil
+		}
 		updated, _ := s.monitor.evaluate(ctx, item)
 		if updated.Ready {
 			if err := s.monitor.register(ctx, updated); err != nil {
@@ -414,17 +430,29 @@ func (s *runtimeServer) Run(ctx context.Context, req *pb.RunScheduledTaskRequest
 				continue
 			}
 			ready++
-			if updated.MediaType == "series" {
-				if err := s.monitor.remember(updated); err != nil {
-					return nil, err
-				}
-			} else if err := s.monitor.forget(updated.Key); err != nil {
+			source := updated.SourceKey
+			if source == "" {
+				source = "monitor"
+			}
+			if contentID := virtualContentID(updated); contentID != "" {
+				keepBySource[source] = append(keepBySource[source], contentID)
+			}
+			if err := s.monitor.remember(updated); err != nil {
 				return nil, err
 			}
 		} else {
 			pending++
 			if err := s.monitor.remember(updated); err != nil {
 				return nil, err
+			}
+		}
+	}
+	if reconciler, ok := registrar.(interface {
+		Reconcile(context.Context, string, []string) error
+	}); ok {
+		for source, keep := range keepBySource {
+			if err := reconciler.Reconcile(ctx, source, keep); err != nil {
+				return nil, fmt.Errorf("reconcile virtual source %q: %w", source, err)
 			}
 		}
 	}
@@ -533,8 +561,12 @@ func (m *mediaMonitor) fetchTVMaze(ctx context.Context, item monitoredMedia) (mo
 		query.Set("imdb", item.IMDbID)
 	} else if item.TVDBID != "" {
 		query.Set("thetvdb", item.TVDBID)
+	} else if item.Title != "" {
+		lookup, _ = url.Parse(strings.TrimRight(tvmazeBaseURL, "/") + "/singlesearch/shows")
+		query = lookup.Query()
+		query.Set("q", item.Title)
 	} else {
-		return item, errors.New("IMDb or TVDB ID required for TVMaze")
+		return item, errors.New("IMDb, TVDB, or Title required for TVMaze")
 	}
 	lookup.RawQuery = query.Encode()
 	client := &http.Client{Timeout: 20 * time.Second}
@@ -547,6 +579,10 @@ func (m *mediaMonitor) fetchTVMaze(ctx context.Context, item monitoredMedia) (mo
 	if resp.StatusCode != http.StatusOK {
 		return item, fmt.Errorf("TVMaze lookup HTTP %d", resp.StatusCode)
 	}
+	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
+	if err != nil {
+		return item, err
+	}
 	var show struct {
 		ID            int `json:"id"`
 		Name, Summary string
@@ -554,8 +590,19 @@ func (m *mediaMonitor) fetchTVMaze(ctx context.Context, item monitoredMedia) (mo
 		Premiered     string
 		Image         struct{ Medium, Original string }
 	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(&show); err != nil {
-		return item, err
+	if err := json.Unmarshal(bodyBytes, &show); err != nil || show.ID <= 0 {
+		var wrapped struct {
+			Show struct {
+				ID            int `json:"id"`
+				Name, Summary string
+				Genres        []string
+				Premiered     string
+				Image         struct{ Medium, Original string }
+			} `json:"show"`
+		}
+		if err := json.Unmarshal(bodyBytes, &wrapped); err == nil {
+			show = wrapped.Show
+		}
 	}
 	if show.ID <= 0 {
 		return item, errors.New("TVMaze returned no show ID")
@@ -777,4 +824,3 @@ func fetchTMDBExternalIDs(ctx context.Context, mediaType, tmdbID, key string) (t
 	}
 	return out, nil
 }
-

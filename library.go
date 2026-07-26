@@ -14,16 +14,20 @@ type virtualMediaRegistrar interface {
 	Register(context.Context, monitoredMedia) error
 }
 
+type configuredVariantResolver interface {
+	GetConfiguredVariants(string) []runtimehost.VirtualMediaVariant
+}
+
 // siloLibrary registers virtual media through Silo's authenticated RuntimeHost
 // control plane. It intentionally has no database URL, driver, or SQL.
 type siloLibrary struct {
 	host            *runtimehost.Client
 	movieLibraryID  int
 	seriesLibraryID int
-	resolver        aioStreamsResolver
+	resolver        streamResolver
 }
 
-func newSiloLibrary(host *runtimehost.Client, movieLibraryID, seriesLibraryID int, resolver aioStreamsResolver) (*siloLibrary, error) {
+func newSiloLibrary(host *runtimehost.Client, movieLibraryID, seriesLibraryID int, resolver streamResolver) (*siloLibrary, error) {
 	if host == nil {
 		return nil, errors.New("Silo host services are not ready")
 	}
@@ -67,22 +71,45 @@ func (l *siloLibrary) Register(ctx context.Context, item monitoredMedia) error {
 		episodes = append(episodes, runtimehost.VirtualEpisode{
 			SeasonNumber: episode.Season, EpisodeNumber: episode.Episode, Title: episode.Title, Overview: episode.Overview,
 			AirDate: episode.Released, RuntimeMinutes: episode.Runtime, StillPath: episode.Thumbnail,
+			// Profile variants are derived from local configuration only. Provider
+			// streams are still resolved when playback starts.
 			VirtualURI: virtualEpURI,
-			Variants:   l.resolver.GetVariants(ctx, virtualEpURI),
+			Variants:   configuredVariants(l.resolver, virtualEpURI),
 		})
 	}
 	req := runtimehost.VirtualMediaRequest{
 		LibraryID: strconv.Itoa(libraryID), MediaType: item.MediaType, Title: item.Title, Year: int(item.Year),
 		IMDbID: item.IMDbID, TMDBID: item.TMDBID, TVDBID: item.TVDBID, Overview: item.Overview, Genres: item.Genres,
 		PosterPath: item.Poster, BackdropPath: item.Backdrop, VirtualURI: virtualURI, RuntimeMinutes: item.Runtime, Episodes: episodes,
+		SourceKey: item.SourceKey,
+	}
+	if req.SourceKey == "" {
+		req.SourceKey = "monitor"
 	}
 	if item.MediaType == "movie" {
 		req.Variants = l.resolver.GetVariants(ctx, virtualURI)
+		if len(req.Variants) == 0 {
+			req.Variants = configuredVariants(l.resolver, virtualURI)
+		}
 	}
-
 	_, err := l.host.UpsertVirtualMedia(ctx, req)
 	if err != nil {
 		return fmt.Errorf("register virtual media with Silo: %w", err)
 	}
 	return nil
+}
+
+func configuredVariants(resolver streamResolver, virtualURI string) []runtimehost.VirtualMediaVariant {
+	if resolver == nil {
+		return nil
+	}
+	if configured, ok := resolver.(configuredVariantResolver); ok {
+		return configured.GetConfiguredVariants(virtualURI)
+	}
+	return nil
+}
+
+func (l *siloLibrary) Reconcile(ctx context.Context, sourceKey string, keepMediaIDs []string) error {
+	_, err := l.host.ReconcileVirtualMedia(ctx, sourceKey, keepMediaIDs, []string{strconv.Itoa(l.movieLibraryID), strconv.Itoa(l.seriesLibraryID)})
+	return err
 }

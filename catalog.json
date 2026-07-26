@@ -10,7 +10,7 @@
             "type": "http_routes.v1",
             "id": "virtual-playback",
             "display_name": "Virtual Playback",
-            "description": "Resolves aiostreams:// virtual paths into short-lived streaming URLs."
+            "description": "Resolves virtual:// virtual paths into short-lived streaming URLs."
           },
           {
             "type": "request_router.v1",
@@ -42,9 +42,9 @@
         ],
         "presentation": {
           "display_name": "Silo Virtual Library",
-          "summary": "Zero-storage virtual playback backed by dynamic AIOStreams resolution.",
-          "description_markdown": "Registers and resolves host-managed `aiostreams://` virtual media through Silo's authenticated plugin control plane, without database credentials or stored media files.",
-          "setup_markdown": "Before enabling the request integration, enter the complete secret AIOStreams manifest URL and the numeric IDs of one Movies library and one Series library. Add an optional TMDB token for authoritative worldwide digital/physical release gating. No database URL or media path is required.",
+          "summary": "Zero-storage virtual playback backed by dynamic streaming provider resolution.",
+          "description_markdown": "Registers and resolves host-managed `virtual://` virtual media through Silo's authenticated plugin control plane, without database credentials or stored media files.",
+          "setup_markdown": "Before enabling the request integration, enter the complete secret streaming provider manifest URL and the numeric IDs of one Movies library and one Series library. Add an optional TMDB token for authoritative worldwide digital/physical release gating. No database URL or media path is required.",
           "homepage_url": "https://github.com/drondeseries/silo-virtual-library",
           "source_url": "https://github.com/drondeseries/silo-virtual-library",
           "support_url": "https://github.com/drondeseries/silo-virtual-library/issues",
@@ -69,9 +69,9 @@
         ],
         "global_config_schema": [
           {
-            "key": "aiostreams",
-            "title": "AIOStreams",
-            "description": "Connection to the configured AIOStreams Stremio addon.",
+            "key": "streaming",
+            "title": "streaming provider",
+            "description": "Connection to the configured streaming provider Stremio addon.",
             "json_schema": "{\"type\":\"object\",\"properties\":{\"manifest_url\":{\"type\":\"string\",\"format\":\"uri\"},\"movie_library_id\":{\"type\":\"integer\",\"minimum\":1},\"series_library_id\":{\"type\":\"integer\",\"minimum\":1},\"tmdb_api_key\":{\"type\":\"string\"},\"monitor_file\":{\"type\":\"string\",\"default\":\".silo-virtual-library-monitored.json\"},\"allow_insecure_http\":{\"type\":\"boolean\",\"default\":false}},\"required\":[\"manifest_url\",\"movie_library_id\",\"series_library_id\"],\"additionalProperties\":false}",
             "required": true,
             "admin_form": {
@@ -93,7 +93,7 @@
                 {
                   "key": "manifest_url",
                   "label": "Manifest URL",
-                  "description": "The complete tokenized AIOStreams URL ending in /manifest.json.",
+                  "description": "The complete tokenized streaming provider URL ending in /manifest.json.",
                   "control": 3,
                   "placeholder": "https://…/manifest.json",
                   "required": true,
@@ -120,7 +120,7 @@
                   "placeholder": ".silo-virtual-library-monitored.json"
                 }
               ],
-              "submit_label": "Save AIOStreams connection"
+              "submit_label": "Save streaming provider connection"
             }
           }
         ]

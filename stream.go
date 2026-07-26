@@ -13,7 +13,7 @@ type StreamCandidate struct {
 	BehaviorHints struct {
 		VideoHash string `json:"videoHash"`
 	}
-	
+
 	Resolution    string
 	CodecVideo    string
 	CodecAudio    string
@@ -23,7 +23,11 @@ type StreamCandidate struct {
 }
 
 func parseStreamDetails(s *StreamCandidate) {
-	fullText := strings.ToLower(s.Name + " " + s.Description + " " + s.Title)
+	// Providers frequently put quality markers in the URL rather than the
+	// human-readable title (for example .../1080p/...). Include it when
+	// deriving profile metadata so configured constraints can match those
+	// streams as well.
+	fullText := strings.ToLower(s.Name + " " + s.Description + " " + s.Title + " " + s.URL)
 
 	// Resolution
 	if strings.Contains(fullText, "2160p") || strings.Contains(fullText, "4k") {
@@ -87,33 +91,41 @@ func parseStreamDetails(s *StreamCandidate) {
 
 func resolutionScore(res string) int {
 	switch res {
-	case "2160p": return 4
-	case "1080p": return 3
-	case "720p": return 2
-	case "480p": return 1
+	case "2160p":
+		return 4
+	case "1080p":
+		return 3
+	case "720p":
+		return 2
+	case "480p":
+		return 1
 	}
 	return 0
 }
 
 func sourceScore(src string) int {
 	switch src {
-	case "remux": return 4
-	case "bluray": return 3
-	case "web-dl": return 2
-	case "hdtv": return 1
+	case "remux":
+		return 4
+	case "bluray":
+		return 3
+	case "web-dl":
+		return 2
+	case "hdtv":
+		return 1
 	}
 	return 0
 }
 
 func matchProfile(c StreamCandidate, p QualityProfile) bool {
-	fullText := c.Name + " " + c.Description + " " + c.Title
+	fullText := c.Name + " " + c.Description + " " + c.Title + " " + c.URL
 	if p.exclude != nil && p.exclude.MatchString(fullText) {
 		return false
 	}
 	if p.include != nil && !p.include.MatchString(fullText) {
 		return false
 	}
-	if p.Resolution != "" && c.Resolution != p.Resolution {
+	if p.Resolution != "" && normalizeResolution(c.Resolution) != normalizeResolution(p.Resolution) {
 		return false
 	}
 	if p.CodecVideo != "" && c.CodecVideo != p.CodecVideo {
@@ -126,6 +138,23 @@ func matchProfile(c StreamCandidate, p QualityProfile) bool {
 		return false
 	}
 	return true
+}
+
+func normalizeResolution(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "4k", "uhd", "2160":
+		return "2160p"
+	case "2k", "1440":
+		return "1440p"
+	case "1080":
+		return "1080p"
+	case "720":
+		return "720p"
+	case "480":
+		return "480p"
+	default:
+		return strings.ToLower(strings.TrimSpace(value))
+	}
 }
 
 func sortCandidatesForProfile(candidates []StreamCandidate, p QualityProfile) {

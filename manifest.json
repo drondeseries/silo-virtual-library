@@ -1,6 +1,6 @@
 {
   "plugin_id": "com.drondeseries.silo-virtual-library",
-  "version": "0.4.3",
+  "version": "0.4.10",
   "checksum": "__CHECKSUM__",
   "silo_api_version": "v1",
   "http_routes": [
@@ -16,7 +16,7 @@
       "type": "http_routes.v1",
       "id": "virtual-playback",
       "display_name": "Virtual Playback",
-      "description": "Resolves aiostreams:// virtual paths into short-lived streaming URLs."
+      "description": "Resolves virtual:// virtual paths into short-lived streaming URLs."
     },
     {
       "type": "request_router.v1",
@@ -40,9 +40,9 @@
   ],
   "presentation": {
     "display_name": "Silo Virtual Library",
-    "summary": "Zero-storage virtual playback backed by dynamic AIOStreams resolution.",
-    "description_markdown": "Registers and resolves host-managed `aiostreams://` virtual media through Silo's authenticated plugin control plane, without database credentials or stored media files.",
-    "setup_markdown": "Before enabling the request integration, enter the complete secret AIOStreams manifest URL and the numeric IDs of one Movies library and one Series library. Add an optional TMDB token for authoritative worldwide digital/physical release gating. No database URL or media path is required.",
+    "summary": "Zero-storage virtual playback backed by dynamic streaming provider resolution.",
+    "description_markdown": "Registers and resolves host-managed `virtual://` virtual media through Silo's authenticated plugin control plane, without database credentials or stored media files.",
+    "setup_markdown": "Before enabling the request integration, enter the complete secret streaming provider manifest URL and the numeric IDs of one Movies library and one Series library. Add an optional TMDB token for authoritative worldwide digital/physical release gating. No database URL or media path is required.",
     "homepage_url": "https://github.com/drondeseries/silo-virtual-library",
     "source_url": "https://github.com/drondeseries/silo-virtual-library",
     "support_url": "https://github.com/drondeseries/silo-virtual-library/issues",
@@ -67,9 +67,9 @@
   ],
   "global_config_schema": [
     {
-      "key": "aiostreams",
-      "title": "AIOStreams",
-      "description": "Connection to the configured AIOStreams Stremio addon.",
+      "key": "streaming",
+      "title": "streaming provider",
+      "description": "Connection to the configured streaming provider Stremio addon.",
       "json_schema": "{\"type\":\"object\",\"properties\":{\"manifest_url\":{\"type\":\"string\",\"format\":\"uri\"},\"movie_library_id\":{\"type\":\"integer\",\"minimum\":1},\"series_library_id\":{\"type\":\"integer\",\"minimum\":1},\"tmdb_api_key\":{\"type\":\"string\"},\"monitor_file\":{\"type\":\"string\",\"default\":\".silo-virtual-library-monitored.json\"},\"allow_insecure_http\":{\"type\":\"boolean\",\"default\":false},\"enable_quality_profiles\":{\"type\":\"boolean\",\"default\":false},\"quality_profiles\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"label\":{\"type\":\"string\"},\"resolution\":{\"type\":\"string\"},\"include_regex\":{\"type\":\"string\"},\"exclude_regex\":{\"type\":\"string\"},\"preferred_order\":{\"type\":\"integer\"},\"codec_video\":{\"type\":\"string\"},\"codec_audio\":{\"type\":\"string\"},\"hdr\":{\"type\":\"string\"}},\"required\":[\"label\"]}},\"fallback_to_any_stream\":{\"type\":\"boolean\",\"default\":false},\"max_versions_per_item\":{\"type\":\"integer\",\"default\":3}},\"required\":[\"manifest_url\",\"movie_library_id\",\"series_library_id\"],\"additionalProperties\":false}",
       "required": true,
       "admin_form": {
@@ -79,7 +79,7 @@
           {
             "key": "manifest_url",
             "label": "Manifest URL",
-            "description": "The complete tokenized AIOStreams URL ending in /manifest.json.",
+            "description": "The complete tokenized streaming provider URL ending in /manifest.json.",
             "control": "ADMIN_FORM_CONTROL_PASSWORD",
             "placeholder": "https://…/manifest.json",
             "required": true,
@@ -108,7 +108,7 @@
           {
             "key": "enable_quality_profiles",
             "label": "Enable Quality Profiles",
-            "description": "Use configurable quality profiles to match AIOStreams.",
+            "description": "Use configurable quality profiles to match streaming provider.",
             "control": "ADMIN_FORM_CONTROL_SWITCH"
           },
           {
@@ -130,7 +130,7 @@
             "control": "ADMIN_FORM_CONTROL_NUMBER"
           }
         ],
-        "submit_label": "Save AIOStreams connection"
+        "submit_label": "Save streaming provider connection"
       }
     }
   ]
