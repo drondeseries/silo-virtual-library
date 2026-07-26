@@ -67,8 +67,10 @@ func (l *siloLibrary) Register(ctx context.Context, item monitoredMedia) error {
 		episodes = append(episodes, runtimehost.VirtualEpisode{
 			SeasonNumber: episode.Season, EpisodeNumber: episode.Episode, Title: episode.Title, Overview: episode.Overview,
 			AirDate: episode.Released, RuntimeMinutes: episode.Runtime, StillPath: episode.Thumbnail,
+			// Keep registration storage-free and fast. Provider streams and
+			// quality variants are resolved when playback starts, not once per
+			// episode during request fulfillment.
 			VirtualURI: virtualEpURI,
-			Variants:   l.resolver.GetVariants(ctx, virtualEpURI),
 		})
 	}
 	req := runtimehost.VirtualMediaRequest{
@@ -80,10 +82,6 @@ func (l *siloLibrary) Register(ctx context.Context, item monitoredMedia) error {
 	if req.SourceKey == "" {
 		req.SourceKey = "monitor"
 	}
-	if item.MediaType == "movie" {
-		req.Variants = l.resolver.GetVariants(ctx, virtualURI)
-	}
-
 	_, err := l.host.UpsertVirtualMedia(ctx, req)
 	if err != nil {
 		return fmt.Errorf("register virtual media with Silo: %w", err)
