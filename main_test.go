@@ -221,3 +221,21 @@ func TestQualityConfigValidation(t *testing.T) {
 		t.Fatalf("Expected error for duplicate label")
 	}
 }
+
+func TestDecodeQualityProfilesAcceptsJSONStringsAndArrays(t *testing.T) {
+	encoded := `[{"label":"1080p","resolution":"1080p","preferred_order":2}]`
+	for name, raw := range map[string]any{
+		"json string": encoded,
+		"typed array": []any{map[string]any{"label": "1080p", "resolution": "1080p", "preferred_order": float64(2)}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			profiles, err := decodeQualityProfiles(raw)
+			if err != nil {
+				t.Fatalf("decodeQualityProfiles() error = %v", err)
+			}
+			if len(profiles) != 1 || profiles[0].Label != "1080p" || profiles[0].PreferredOrder != 2 {
+				t.Fatalf("profiles = %#v", profiles)
+			}
+		})
+	}
+}

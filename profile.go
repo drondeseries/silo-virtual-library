@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -25,6 +26,30 @@ type QualityConfig struct {
 	Profiles            []QualityProfile `json:"quality_profiles"`
 	FallbackToAnyStream bool             `json:"fallback_to_any_stream"`
 	MaxVersionsPerItem  int              `json:"max_versions_per_item"`
+}
+
+// decodeQualityProfiles accepts both the typed array emitted by newer Silo
+// admin forms and the JSON string emitted by older forms.
+func decodeQualityProfiles(raw any) ([]QualityProfile, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	if encoded, ok := raw.(string); ok {
+		if strings.TrimSpace(encoded) == "" {
+			return nil, nil
+		}
+		raw = json.RawMessage(encoded)
+	}
+
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return nil, err
+	}
+	var profiles []QualityProfile
+	if err := json.Unmarshal(data, &profiles); err != nil {
+		return nil, err
+	}
+	return profiles, nil
 }
 
 func (q *QualityConfig) Validate() error {

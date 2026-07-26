@@ -385,38 +385,11 @@ func (s *runtimeServer) Configure(_ context.Context, request *pb.ConfigureReques
 			qc.MaxVersionsPerItem = 3
 		}
 
-		if profilesRaw, ok := values["quality_profiles"].([]interface{}); ok {
-			for _, pr := range profilesRaw {
-				if pMap, ok := pr.(map[string]interface{}); ok {
-					var p QualityProfile
-					if v, ok := pMap["label"].(string); ok {
-						p.Label = v
-					}
-					if v, ok := pMap["resolution"].(string); ok {
-						p.Resolution = v
-					}
-					if v, ok := pMap["include_regex"].(string); ok {
-						p.IncludeRegex = v
-					}
-					if v, ok := pMap["exclude_regex"].(string); ok {
-						p.ExcludeRegex = v
-					}
-					if v, ok := pMap["preferred_order"].(float64); ok {
-						p.PreferredOrder = int(v)
-					}
-					if v, ok := pMap["codec_video"].(string); ok {
-						p.CodecVideo = v
-					}
-					if v, ok := pMap["codec_audio"].(string); ok {
-						p.CodecAudio = v
-					}
-					if v, ok := pMap["hdr"].(string); ok {
-						p.HDR = v
-					}
-					qc.Profiles = append(qc.Profiles, p)
-				}
-			}
+		profiles, err := decodeQualityProfiles(values["quality_profiles"])
+		if err != nil {
+			return nil, fmt.Errorf("quality_profiles: %w", err)
 		}
+		qc.Profiles = profiles
 
 		if err := qc.Validate(); err != nil {
 			return nil, fmt.Errorf("invalid quality config: %w", err)
