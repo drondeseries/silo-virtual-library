@@ -75,6 +75,10 @@ func (l *siloLibrary) Register(ctx context.Context, item monitoredMedia) error {
 		LibraryID: strconv.Itoa(libraryID), MediaType: item.MediaType, Title: item.Title, Year: int(item.Year),
 		IMDbID: item.IMDbID, TMDBID: item.TMDBID, TVDBID: item.TVDBID, Overview: item.Overview, Genres: item.Genres,
 		PosterPath: item.Poster, BackdropPath: item.Backdrop, VirtualURI: virtualURI, RuntimeMinutes: item.Runtime, Episodes: episodes,
+		SourceKey: item.SourceKey,
+	}
+	if req.SourceKey == "" {
+		req.SourceKey = "monitor"
 	}
 	if item.MediaType == "movie" {
 		req.Variants = l.resolver.GetVariants(ctx, virtualURI)
@@ -85,4 +89,9 @@ func (l *siloLibrary) Register(ctx context.Context, item monitoredMedia) error {
 		return fmt.Errorf("register virtual media with Silo: %w", err)
 	}
 	return nil
+}
+
+func (l *siloLibrary) Reconcile(ctx context.Context, sourceKey string, keepMediaIDs []string) error {
+	_, err := l.host.ReconcileVirtualMedia(ctx, sourceKey, keepMediaIDs, []string{strconv.Itoa(l.movieLibraryID), strconv.Itoa(l.seriesLibraryID)})
+	return err
 }

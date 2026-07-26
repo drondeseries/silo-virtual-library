@@ -32,15 +32,15 @@ var (
 
 type monitorConfig struct{ TMDBAPIKey, File string }
 type monitoredMedia struct {
-	Key, MediaType, Title, StreamID, IMDbID, TMDBID, TVDBID string
-	MediaFolderID                                           int       `json:"media_folder_id,omitempty"`
-	Year                                                    int32     `json:"year"`
-	Runtime                                                 int       `json:"runtime,omitempty"`
-	Release                                                 time.Time `json:"release"`
-	Ready                                                   bool      `json:"ready"`
-	Overview, Poster, Backdrop                              string
-	Genres                                                  []string
-	Episodes                                                []virtualEpisode
+	Key, MediaType, Title, StreamID, IMDbID, TMDBID, TVDBID, SourceKey string
+	MediaFolderID                                                      int       `json:"media_folder_id,omitempty"`
+	Year                                                               int32     `json:"year"`
+	Runtime                                                            int       `json:"runtime,omitempty"`
+	Release                                                            time.Time `json:"release"`
+	Ready                                                              bool      `json:"ready"`
+	Overview, Poster, Backdrop                                         string
+	Genres                                                             []string
+	Episodes                                                           []virtualEpisode
 }
 type virtualEpisode struct {
 	Season, Episode            int
@@ -163,7 +163,20 @@ func mediaFromRequest(r *pb.RequestDescriptor) (monitoredMedia, error) {
 	if streamID == "" {
 		return monitoredMedia{}, errors.New("IMDb, TVDB, or TMDB ID is required")
 	}
-	return monitoredMedia{Key: typ + ":" + streamID, MediaType: typ, Title: strings.TrimSpace(r.GetTitle()), Year: r.GetYear(), StreamID: streamID, IMDbID: imdb, TMDBID: tmdb, TVDBID: tvdb}, nil
+	return monitoredMedia{Key: typ + ":" + streamID, MediaType: typ, Title: strings.TrimSpace(r.GetTitle()), Year: r.GetYear(), StreamID: streamID, IMDbID: imdb, TMDBID: tmdb, TVDBID: tvdb, SourceKey: "request:" + typ + ":" + streamID}, nil
+}
+
+func virtualContentID(item monitoredMedia) string {
+	if item.MediaType == "series" && item.TVDBID != "" {
+		return "series-tvdb-" + item.TVDBID
+	}
+	if item.TMDBID != "" {
+		return item.MediaType + "-tmdb-" + item.TMDBID
+	}
+	if item.IMDbID != "" {
+		return item.MediaType + "-imdb-" + item.IMDbID
+	}
+	return ""
 }
 
 func (m *mediaMonitor) evaluate(ctx context.Context, item monitoredMedia) (monitoredMedia, string) {
@@ -402,7 +415,15 @@ func (s *runtimeServer) Run(ctx context.Context, req *pb.RunScheduledTaskRequest
 		items = append(items, item)
 	}
 	ready, pending := 0, 0
+	keepBySource := make(map[string][]string)
 	for _, item := range items {
+		source := item.SourceKey
+		if source == "" {
+			source = "monitor"
+		}
+		if _, exists := keepBySource[source]; !exists {
+			keepBySource[source] = nil
+		}
 		updated, _ := s.monitor.evaluate(ctx, item)
 		if updated.Ready {
 			if err := s.monitor.register(ctx, updated); err != nil {
@@ -411,17 +432,29 @@ func (s *runtimeServer) Run(ctx context.Context, req *pb.RunScheduledTaskRequest
 				continue
 			}
 			ready++
-			if updated.MediaType == "series" {
-				if err := s.monitor.remember(updated); err != nil {
-					return nil, err
-				}
-			} else if err := s.monitor.forget(updated.Key); err != nil {
+			source := updated.SourceKey
+			if source == "" {
+				source = "monitor"
+			}
+			if contentID := virtualContentID(updated); contentID != "" {
+				keepBySource[source] = append(keepBySource[source], contentID)
+			}
+			if err := s.monitor.remember(updated); err != nil {
 				return nil, err
 			}
 		} else {
 			pending++
 			if err := s.monitor.remember(updated); err != nil {
 				return nil, err
+			}
+		}
+	}
+	if reconciler, ok := registrar.(interface {
+		Reconcile(context.Context, string, []string) error
+	}); ok {
+		for source, keep := range keepBySource {
+			if err := reconciler.Reconcile(ctx, source, keep); err != nil {
+				return nil, fmt.Errorf("reconcile virtual source %q: %w", source, err)
 			}
 		}
 	}
