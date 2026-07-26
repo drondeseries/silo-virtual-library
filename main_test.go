@@ -246,3 +246,14 @@ func TestCandidateDisplayNameIncludesProviderSize(t *testing.T) {
 		t.Fatalf("candidate display name = %q, want provider size", name)
 	}
 }
+
+func TestParseStreamDetailsPrefersTitleResolutionOverURLTokens(t *testing.T) {
+	candidate := StreamCandidate{
+		Title: "Sin City A Dame to Kill For [720p]",
+		URL:   "https://provider.example/play/4k opaque-token",
+	}
+	parseStreamDetails(&candidate)
+	if candidate.Resolution != "720p" {
+		t.Fatalf("resolution = %q, want 720p", candidate.Resolution)
+	}
+}

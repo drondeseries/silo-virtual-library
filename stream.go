@@ -26,20 +26,23 @@ type StreamCandidate struct {
 }
 
 func parseStreamDetails(s *StreamCandidate) {
-	// Providers frequently put quality markers in the URL rather than the
-	// human-readable title (for example .../1080p/...). Include it when
-	// deriving profile metadata so configured constraints can match those
-	// streams as well.
-	fullText := strings.ToLower(s.Name + " " + s.Description + " " + s.Title + " " + s.URL)
+	metadataText := strings.ToLower(s.Name + " " + s.Description + " " + s.Title)
+	fullText := metadataText + " " + strings.ToLower(s.URL)
 
 	// Resolution
-	if strings.Contains(fullText, "2160p") || strings.Contains(fullText, "4k") {
+	// Prefer explicit provider metadata. URL tokens can contain unrelated
+	// strings such as "4k" in an opaque identifier.
+	resolutionText := metadataText
+	if !hasResolutionMarker(resolutionText) {
+		resolutionText = fullText
+	}
+	if strings.Contains(resolutionText, "2160p") || strings.Contains(resolutionText, "4k") {
 		s.Resolution = "2160p"
-	} else if strings.Contains(fullText, "1080p") {
+	} else if strings.Contains(resolutionText, "1080p") {
 		s.Resolution = "1080p"
-	} else if strings.Contains(fullText, "720p") {
+	} else if strings.Contains(resolutionText, "720p") {
 		s.Resolution = "720p"
-	} else if strings.Contains(fullText, "480p") || strings.Contains(fullText, "sd") {
+	} else if strings.Contains(resolutionText, "480p") || strings.Contains(resolutionText, "sd") {
 		s.Resolution = "480p"
 	}
 
@@ -90,6 +93,12 @@ func parseStreamDetails(s *StreamCandidate) {
 	} else if strings.Contains(fullText, "hdtv") {
 		s.SourceType = "hdtv"
 	}
+}
+
+func hasResolutionMarker(text string) bool {
+	return strings.Contains(text, "2160p") || strings.Contains(text, "4k") ||
+		strings.Contains(text, "1080p") || strings.Contains(text, "720p") ||
+		strings.Contains(text, "480p")
 }
 
 func streamSize(s StreamCandidate) string {
