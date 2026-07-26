@@ -212,7 +212,7 @@ func (c *manifestStreamResolver) GetVariants(ctx context.Context, virtualPath st
 				values.Set("profile", p.Label)
 				values.Set("result", id)
 				label := strings.TrimSpace(p.Label + " · " + candidateDisplayName(candidate))
-				variants = append(variants, runtimehost.VirtualMediaVariant{VirtualURI: virtualPath + "?" + values.Encode(), Label: label, Resolution: candidate.Resolution, CodecVideo: candidate.CodecVideo, CodecAudio: candidate.CodecAudio, HDR: candidate.HDR, FileSize: candidate.FileSize, Container: candidate.Container, SourceType: candidate.SourceType, AudioLanguages: candidate.AudioLanguages, SubtitleLanguages: candidate.SubtitleLanguages, Availability: "available"})
+				variants = append(variants, runtimehost.VirtualMediaVariant{VirtualURI: virtualPath + "?" + values.Encode(), Label: label, Resolution: candidate.Resolution, CodecVideo: candidate.CodecVideo, CodecAudio: candidate.CodecAudio, HDR: candidate.HDR})
 				if len(profileSeen) >= maxVersions {
 					break
 				}
