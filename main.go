@@ -191,7 +191,6 @@ func (c *manifestStreamResolver) GetVariants(ctx context.Context, virtualPath st
 		maxVersions = len(candidates)
 	}
 
-	seen := make(map[string]struct{})
 	for _, p := range config.Profiles {
 		var matched []StreamCandidate
 		for _, cand := range candidates {
@@ -201,19 +200,20 @@ func (c *manifestStreamResolver) GetVariants(ctx context.Context, virtualPath st
 		}
 		if len(matched) > 0 {
 			sortCandidatesForProfile(matched, p)
+			profileSeen := make(map[string]struct{})
 			for _, candidate := range matched {
 				id := candidateVariantID(candidate)
-				if _, ok := seen[id]; ok {
+				if _, ok := profileSeen[id]; ok {
 					continue
 				}
-				seen[id] = struct{}{}
+				profileSeen[id] = struct{}{}
 				values := url.Values{}
 				values.Set("profile", p.Label)
 				values.Set("result", id)
 				label := strings.TrimSpace(p.Label + " · " + candidateDisplayName(candidate))
 				variants = append(variants, runtimehost.VirtualMediaVariant{VirtualURI: virtualPath + "?" + values.Encode(), Label: label, Resolution: candidate.Resolution, CodecVideo: candidate.CodecVideo, CodecAudio: candidate.CodecAudio, HDR: candidate.HDR})
-				if len(variants) >= maxVersions {
-					return variants
+				if len(profileSeen) >= maxVersions {
+					break
 				}
 			}
 		}
