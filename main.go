@@ -200,6 +200,49 @@ func (c *manifestStreamResolver) GetVariants(ctx context.Context, virtualPath st
 	return variants
 }
 
+// GetConfiguredVariants exposes profile-specific virtual URIs without querying
+// the upstream provider. This keeps request fulfillment instant while allowing
+// Silo to display every configured quality choice; the profile is resolved only
+// when the URI is played.
+func (c *manifestStreamResolver) GetConfiguredVariants(virtualPath string) []runtimehost.VirtualMediaVariant {
+	c.mu.RLock()
+	config := c.config.Quality
+	c.mu.RUnlock()
+	if !config.EnableProfiles {
+		return nil
+	}
+	max := config.MaxVersionsPerItem
+	if max <= 0 {
+		max = len(config.Profiles)
+	}
+	variants := make([]runtimehost.VirtualMediaVariant, 0, minInt(max, len(config.Profiles)))
+	for _, profile := range config.Profiles {
+		if strings.TrimSpace(profile.Label) == "" {
+			continue
+		}
+		variantURI := virtualPath + "?profile=" + url.QueryEscape(profile.Label)
+		variants = append(variants, runtimehost.VirtualMediaVariant{
+			VirtualURI: variantURI,
+			Label:      profile.Label,
+			Resolution: profile.Resolution,
+			CodecVideo: profile.CodecVideo,
+			CodecAudio: profile.CodecAudio,
+			HDR:        profile.HDR,
+		})
+		if len(variants) >= max {
+			break
+		}
+	}
+	return variants
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 func parseVirtualPath(virtualPath string) (string, string, error) {
 	if !strings.HasPrefix(virtualPath, virtualPathPrefix) {
 		return "", "", errors.New("path is not an virtual URI")
