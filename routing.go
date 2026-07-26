@@ -77,14 +77,6 @@ func (m *mediaMonitor) register(ctx context.Context, item monitoredMedia) error 
 	return registrar.Register(ctx, item)
 }
 
-func (m *mediaMonitor) prewarm(path string) {
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		_, _ = m.resolver.Resolve(ctx, path)
-	}()
-}
-
 func newMediaMonitor(resolver streamResolver, logger hclog.Logger) *mediaMonitor {
 	return &mediaMonitor{resolver: resolver, logger: logger, config: monitorConfig{File: ".silo-virtual-library-monitored.json"}, items: map[string]monitoredMedia{}}
 }
@@ -304,11 +296,6 @@ func (s *runtimeServer) Fulfill(ctx context.Context, req *pb.FulfillRequest) (re
 	item, err := mediaFromRequest(req.GetRequest())
 	if err != nil {
 		return nil, err
-	}
-	// Explicit request-time prewarming only. Scheduled monitoring never calls
-	// this path, so theatrical titles are not repeatedly sent upstream.
-	if item.MediaType == "movie" {
-		s.monitor.prewarm("virtual://movie/" + strings.ReplaceAll(item.StreamID, ":", "/"))
 	}
 	item, message := s.monitor.evaluate(ctx, item)
 	if len(req.GetConnections()) > 0 {
