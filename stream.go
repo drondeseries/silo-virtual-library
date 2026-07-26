@@ -3,10 +3,12 @@ package main
 import (
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 )
 
 var streamSizePattern = regexp.MustCompile(`(?i)\b\d+(?:\.\d+)?\s*(?:TB|GB|MB)\b`)
+var languagePattern = regexp.MustCompile(`(?i)\b(?:eng|en|fra|fre|fr|deu|ger|de|ita|es|spa|jpn|kor|zho|chi|por|rus|ara|multi)\b`)
 
 type StreamCandidate struct {
 	URL           string
@@ -17,12 +19,16 @@ type StreamCandidate struct {
 		VideoHash string `json:"videoHash"`
 	}
 
-	Resolution    string
-	CodecVideo    string
-	CodecAudio    string
-	HDR           string
-	SourceType    string
-	OriginalIndex int
+	Resolution        string
+	CodecVideo        string
+	CodecAudio        string
+	HDR               string
+	SourceType        string
+	FileSize          int64
+	Container         string
+	AudioLanguages    []string
+	SubtitleLanguages []string
+	OriginalIndex     int
 }
 
 func parseStreamDetails(s *StreamCandidate) {
@@ -103,6 +109,42 @@ func hasResolutionMarker(text string) bool {
 
 func streamSize(s StreamCandidate) string {
 	return streamSizePattern.FindString(s.Name + " " + s.Description + " " + s.Title)
+}
+
+func parseStreamMetadata(s *StreamCandidate) {
+	text := s.Name + " " + s.Description + " " + s.Title
+	if size := streamSizePattern.FindString(text); size != "" {
+		parts := strings.Fields(strings.ToUpper(size))
+		if len(parts) == 2 {
+			if value, err := strconv.ParseFloat(parts[0], 64); err == nil {
+				multiplier := float64(1)
+				switch parts[1] {
+				case "TB":
+					multiplier = 1e12
+				case "GB":
+					multiplier = 1e9
+				case "MB":
+					multiplier = 1e6
+				}
+				s.FileSize = int64(value * multiplier)
+			}
+		}
+	}
+	seen := map[string]bool{}
+	for _, match := range languagePattern.FindAllString(strings.ToLower(text), -1) {
+		match = strings.ToUpper(match)
+		if !seen[match] {
+			seen[match] = true
+			s.AudioLanguages = append(s.AudioLanguages, match)
+		}
+	}
+	lowerURL := strings.ToLower(s.URL)
+	for _, ext := range []string{".mkv", ".mp4", ".webm", ".avi", ".mov"} {
+		if strings.Contains(lowerURL, ext) {
+			s.Container = strings.TrimPrefix(ext, ".")
+			break
+		}
+	}
 }
 
 func resolutionScore(res string) int {
