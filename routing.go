@@ -324,10 +324,8 @@ func (s *runtimeServer) Fulfill(ctx context.Context, req *pb.FulfillRequest) (re
 		}
 		message = "Virtual media registered in Silo library"
 	}
-	if !item.Ready || item.MediaType == "series" {
-		if err := s.monitor.remember(item); err != nil {
-			s.monitor.logger.Error("persist monitored media", "key", item.Key, "error", err)
-		}
+	if err := s.monitor.remember(item); err != nil {
+		s.monitor.logger.Error("persist monitored media", "key", item.Key, "error", err)
 	}
 	status, external := "queued", "monitored"
 	if item.Ready {
