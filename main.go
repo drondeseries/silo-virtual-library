@@ -237,7 +237,7 @@ func (c *manifestStreamResolver) GetVariants(ctx context.Context, virtualPath st
 	config := c.config.Quality
 	c.mu.RUnlock()
 
-	if !config.EnableProfiles {
+	if !config.EnableProfiles || config.SelectionMode == SelectionModePicker {
 		return variants
 	}
 	candidates, _, _, err := c.GetCandidates(ctx, virtualPath)
@@ -299,7 +299,7 @@ func (c *manifestStreamResolver) GetConfiguredVariants(virtualPath string) []run
 	c.mu.RLock()
 	config := c.config.Quality
 	c.mu.RUnlock()
-	if !config.EnableProfiles {
+	if !config.EnableProfiles || config.SelectionMode == SelectionModePicker {
 		return nil
 	}
 	max := config.MaxVersionsPerItem
@@ -423,6 +423,7 @@ func (s *runtimeServer) Configure(_ context.Context, request *pb.ConfigureReques
 		var qc QualityConfig
 		qc.EnableProfiles, _ = values["enable_quality_profiles"].(bool)
 		qc.FallbackToAnyStream, _ = values["fallback_to_any_stream"].(bool)
+		qc.SelectionMode, _ = values["selection_mode"].(string)
 
 		if maxV, ok := values["max_versions_per_item"].(float64); ok {
 			qc.MaxVersionsPerItem = int(maxV)

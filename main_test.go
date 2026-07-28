@@ -222,6 +222,36 @@ func TestQualityConfigValidation(t *testing.T) {
 	}
 }
 
+func TestQualityConfigSelectionModeDefaultsAndValidates(t *testing.T) {
+	qc := QualityConfig{}
+	if err := qc.Validate(); err != nil {
+		t.Fatalf("default selection mode rejected: %v", err)
+	}
+	if qc.SelectionMode != SelectionModeMaxVersions {
+		t.Fatalf("default selection mode = %q, want %q", qc.SelectionMode, SelectionModeMaxVersions)
+	}
+	qc.SelectionMode = SelectionModePicker
+	if err := qc.Validate(); err != nil {
+		t.Fatalf("picker selection mode rejected: %v", err)
+	}
+	qc.SelectionMode = "unknown"
+	if err := qc.Validate(); err == nil {
+		t.Fatal("unknown selection mode accepted")
+	}
+}
+
+func TestPickerSelectionModeDoesNotMaterializeVariants(t *testing.T) {
+	resolver := &manifestStreamResolver{}
+	resolver.Configure(resolverConfig{Quality: QualityConfig{
+		EnableProfiles: true,
+		SelectionMode:  SelectionModePicker,
+		Profiles:       []QualityProfile{{Label: "1080p"}},
+	}})
+	if got := resolver.GetConfiguredVariants("virtual://movie/tt0133093"); len(got) != 0 {
+		t.Fatalf("configured variants in picker mode = %d, want 0", len(got))
+	}
+}
+
 func TestDecodeQualityProfilesAcceptsJSONStringsAndArrays(t *testing.T) {
 	encoded := `[{"label":"1080p","resolution":"1080p","preferred_order":2}]`
 	for name, raw := range map[string]any{

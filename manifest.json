@@ -1,6 +1,6 @@
 {
   "plugin_id": "com.drondeseries.silo-virtual-library",
-  "version": "0.4.19",
+  "version": "0.4.20",
   "checksum": "__CHECKSUM__",
   "silo_api_version": "v1",
   "http_routes": [
@@ -70,7 +70,7 @@
       "key": "streaming",
       "title": "streaming provider",
       "description": "Connection to the configured streaming provider Stremio addon.",
-      "json_schema": "{\"type\":\"object\",\"properties\":{\"manifest_url\":{\"type\":\"string\",\"format\":\"uri\"},\"movie_library_id\":{\"type\":\"integer\",\"minimum\":1},\"series_library_id\":{\"type\":\"integer\",\"minimum\":1},\"tmdb_api_key\":{\"type\":\"string\"},\"monitor_file\":{\"type\":\"string\",\"default\":\".silo-virtual-library-monitored.json\"},\"allow_insecure_http\":{\"type\":\"boolean\",\"default\":false},\"enable_quality_profiles\":{\"type\":\"boolean\",\"default\":false},\"quality_profiles\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"label\":{\"type\":\"string\"},\"resolution\":{\"type\":\"string\"},\"include_regex\":{\"type\":\"string\"},\"exclude_regex\":{\"type\":\"string\"},\"preferred_order\":{\"type\":\"integer\"},\"codec_video\":{\"type\":\"string\"},\"codec_audio\":{\"type\":\"string\"},\"hdr\":{\"type\":\"string\"}},\"required\":[\"label\"]}},\"fallback_to_any_stream\":{\"type\":\"boolean\",\"default\":false},\"max_versions_per_item\":{\"type\":\"integer\",\"default\":3}},\"required\":[\"manifest_url\",\"movie_library_id\",\"series_library_id\"],\"additionalProperties\":false}",
+      "json_schema": "{\"type\":\"object\",\"properties\":{\"manifest_url\":{\"type\":\"string\",\"format\":\"uri\"},\"movie_library_id\":{\"type\":\"integer\",\"minimum\":1},\"series_library_id\":{\"type\":\"integer\",\"minimum\":1},\"tmdb_api_key\":{\"type\":\"string\"},\"monitor_file\":{\"type\":\"string\",\"default\":\".silo-virtual-library-monitored.json\"},\"allow_insecure_http\":{\"type\":\"boolean\",\"default\":false},\"enable_quality_profiles\":{\"type\":\"boolean\",\"default\":false},\"quality_profiles\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"label\":{\"type\":\"string\"},\"resolution\":{\"type\":\"string\"},\"include_regex\":{\"type\":\"string\"},\"exclude_regex\":{\"type\":\"string\"},\"preferred_order\":{\"type\":\"integer\"},\"codec_video\":{\"type\":\"string\"},\"codec_audio\":{\"type\":\"string\"},\"hdr\":{\"type\":\"string\"}},\"required\":[\"label\"]}},\"selection_mode\":{\"type\":\"string\",\"enum\":[\"max_versions\",\"picker\"],\"default\":\"max_versions\"},\"fallback_to_any_stream\":{\"type\":\"boolean\",\"default\":false},\"max_versions_per_item\":{\"type\":\"integer\",\"default\":3}},\"required\":[\"manifest_url\",\"movie_library_id\",\"series_library_id\"],\"additionalProperties\":false}",
       "required": true,
       "admin_form": {
         "fields": [
@@ -122,6 +122,16 @@
             "label": "Fallback to Any Stream",
             "description": "Return 1 stream if no profiles match.",
             "control": "ADMIN_FORM_CONTROL_SWITCH"
+          },
+          {
+            "key": "selection_mode",
+            "label": "Stream Selection Mode",
+            "description": "Choose Max Versions to materialize configured profile entries, or Picker to show provider streams when Play is pressed.",
+            "control": "ADMIN_FORM_CONTROL_SELECT",
+            "options": [
+              {"value":"max_versions","label":"Maximum versions"},
+              {"value":"picker","label":"Stream picker"}
+            ]
           },
           {
             "key": "max_versions_per_item",
