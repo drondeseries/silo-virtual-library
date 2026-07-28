@@ -136,6 +136,15 @@ func (c *manifestStreamResolver) GetCandidates(ctx context.Context, virtualPath 
 	if idx := strings.Index(mediaID, "?"); idx != -1 {
 		mediaID = mediaID[:idx]
 	}
+	// Silo keeps TVDB-based catalog IDs for stable series identity, but the
+	// Stremio stream protocol expects IMDb video IDs (tt...:season:episode).
+	// Translate legacy TVDB virtual paths before contacting the provider.
+	if mediaType == "series" {
+		mediaID, err = c.normalizeSeriesProviderID(ctx, mediaID)
+		if err != nil {
+			return nil, mediaType, mediaID, err
+		}
+	}
 
 	c.mu.RLock()
 	manifestURL := c.config.ManifestURL
@@ -172,6 +181,50 @@ func (c *manifestStreamResolver) GetCandidates(ctx context.Context, virtualPath 
 		}
 	}
 	return validCandidates, mediaType, mediaID, nil
+}
+
+func (c *manifestStreamResolver) normalizeSeriesProviderID(ctx context.Context, mediaID string) (string, error) {
+	parts := strings.Split(mediaID, ":")
+	if len(parts) < 2 || !strings.EqualFold(parts[0], "tvdb") {
+		return mediaID, nil
+	}
+	tvdbID := strings.TrimSpace(parts[1])
+	if tvdbID == "" {
+		return "", errors.New("TVDB series ID is empty")
+	}
+	lookupURL := tvmazeBaseURL + "/lookup/shows?thetvdb=" + url.QueryEscape(tvdbID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, lookupURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("create TVDB series lookup: %w", err)
+	}
+	client := c.client
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("lookup TVDB series ID %s: %w", tvdbID, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("TVMaze returned status %d for TVDB series ID %s", resp.StatusCode, tvdbID)
+	}
+	var payload struct {
+		Externals struct {
+			IMDb string `json:"imdb"`
+		} `json:"externals"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&payload); err != nil {
+		return "", fmt.Errorf("decode TVDB series lookup: %w", err)
+	}
+	imdbID := strings.TrimSpace(payload.Externals.IMDb)
+	if imdbID == "" {
+		return "", fmt.Errorf("TVDB series ID %s has no IMDb ID for Stremio playback", tvdbID)
+	}
+	if len(parts) == 2 {
+		return imdbID, nil
+	}
+	return imdbID + ":" + strings.Join(parts[2:], ":"), nil
 }
 
 func (c *manifestStreamResolver) GetVariants(ctx context.Context, virtualPath string) []runtimehost.VirtualMediaVariant {
