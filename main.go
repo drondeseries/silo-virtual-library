@@ -38,6 +38,10 @@ type streamResolver interface {
 	Resolve(context.Context, string) (string, error)
 	GetVariants(context.Context, string) []runtimehost.VirtualMediaVariant
 }
+
+type candidateLister interface {
+	GetCandidates(context.Context, string) ([]StreamCandidate, string, string, error)
+}
 type resolverConfig struct {
 	ManifestURL   string
 	AllowInsecure bool
@@ -490,6 +494,26 @@ func (s *playbackServer) Handle(ctx context.Context, request *pb.HandleHTTPReque
 	}
 	if !strings.HasPrefix(path, virtualPathPrefix) {
 		return jsonResponse(http.StatusNotFound, map[string]string{"error": "path is not handled by virtual playback"})
+	}
+	if strings.EqualFold(request.GetHeaders()["X-Silo-List-Streams"], "true") {
+		lister, ok := s.resolver.(candidateLister)
+		if !ok { return jsonResponse(http.StatusNotImplemented, map[string]string{"error": "stream listing is not supported"}) }
+		candidates, _, _, err := lister.GetCandidates(ctx, path)
+		if err != nil {
+			return jsonResponse(http.StatusBadGateway, map[string]string{"error": err.Error()})
+		}
+		streams := make([]map[string]any, 0, len(candidates))
+		for _, candidate := range candidates {
+			id := candidateVariantID(candidate)
+			streams = append(streams, map[string]any{
+				"id": id, "label": candidateDisplayName(candidate),
+				"uri": path + "?result=" + url.QueryEscape(id),
+				"resolution": candidate.Resolution, "codec_video": candidate.CodecVideo,
+				"codec_audio": candidate.CodecAudio, "hdr": candidate.HDR,
+				"source_type": candidate.SourceType, "file_size": candidate.FileSize,
+			})
+		}
+		return jsonResponse(http.StatusOK, map[string]any{"streams": streams})
 	}
 	streamURL, err := s.resolver.Resolve(ctx, path)
 	if err != nil {
