@@ -19,6 +19,17 @@
       "description": "Resolves virtual:// virtual paths into short-lived streaming URLs."
     },
     {
+      "type": "virtual_stream_provider.v1",
+      "id": "stremio-stream-resolver",
+      "display_name": "Virtual Stream Provider",
+      "description": "Resolves provider-neutral virtual media into ranked, temporary stream candidates.",
+      "metadata": {
+        "supported_media_types": ["movie", "series", "episode"],
+        "supports_just_in_time_resolution": true,
+        "supports_multiple_candidates": true
+      }
+    },
+    {
       "type": "request_router.v1",
       "id": "virtual-library-requests",
       "display_name": "Virtual Library Requests",

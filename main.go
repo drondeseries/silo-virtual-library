@@ -482,7 +482,9 @@ func (s *playbackServer) Handle(ctx context.Context, request *pb.HandleHTTPReque
 	}
 	if strings.EqualFold(request.GetHeaders()["X-Silo-List-Streams"], "true") {
 		lister, ok := s.resolver.(candidateLister)
-		if !ok { return jsonResponse(http.StatusNotImplemented, map[string]string{"error": "stream listing is not supported"}) }
+		if !ok {
+			return jsonResponse(http.StatusNotImplemented, map[string]string{"error": "stream listing is not supported"})
+		}
 		candidates, _, _, err := lister.GetCandidates(ctx, path)
 		if err != nil {
 			return jsonResponse(http.StatusBadGateway, map[string]string{"error": err.Error()})
@@ -492,7 +494,7 @@ func (s *playbackServer) Handle(ctx context.Context, request *pb.HandleHTTPReque
 			id := candidateVariantID(candidate)
 			streams = append(streams, map[string]any{
 				"id": id, "label": candidateDisplayName(candidate),
-				"uri": path + "?result=" + url.QueryEscape(id),
+				"uri":        path + "?result=" + url.QueryEscape(id),
 				"resolution": candidate.Resolution, "codec_video": candidate.CodecVideo,
 				"codec_audio": candidate.CodecAudio, "hdr": candidate.HDR,
 				"source_type": candidate.SourceType, "file_size": candidate.FileSize,
@@ -525,7 +527,7 @@ func main() {
 	runtime := &runtimeServer{manifest: manifest, resolver: resolver, monitor: monitor}
 	sdkruntime.Serve(sdkruntime.ServeConfig{
 		Logger:  hclog.New(&hclog.LoggerOptions{Name: "silo-virtual-library"}),
-		Servers: sdkruntime.CapabilityServers{Runtime: runtime, HttpRoutes: &playbackServer{resolver: resolver}, RequestRouter: runtime, ScheduledTask: runtime},
+		Servers: sdkruntime.CapabilityServers{Runtime: runtime, HttpRoutes: &playbackServer{resolver: resolver}, VirtualStreamProvider: &virtualStreamProvider{resolver: resolver}, RequestRouter: runtime, ScheduledTask: runtime},
 	})
 }
 func loadManifest() (*pb.PluginManifest, error) {
