@@ -172,11 +172,11 @@ func TestQualityProfiles(t *testing.T) {
 	}
 
 	variants := resolver.GetVariants(ctx, "virtual://movie/tt0133093")
-	if len(variants) != 6 {
-		t.Fatalf("Expected 6 variants, got %d", len(variants))
+	if len(variants) != 4 {
+		t.Fatalf("Expected 4 profile placeholders, got %d", len(variants))
 	}
-	if !strings.Contains(variants[0].VirtualURI, "result=") {
-		t.Fatalf("Expected provider result identifier in variant URI: %s", variants[0].VirtualURI)
+	if strings.Contains(variants[0].VirtualURI, "result=") {
+		t.Fatalf("Expected provider-neutral variant URI: %s", variants[0].VirtualURI)
 	}
 	selected, err := resolver.Resolve(ctx, variants[0].VirtualURI)
 	if err != nil || selected != "https://stream.example/movie3.mkv" {
