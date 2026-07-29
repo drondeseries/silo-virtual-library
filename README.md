@@ -29,7 +29,7 @@ The `request_router.v1` capability checks release availability before reporting 
 
 Items that are upcoming or theatrical-only are persisted in the configured monitored queue file. The `monitor-media` scheduled task rechecks release metadata. Silo's subsequent request-status poll observes `completed` once the title has a digital or physical release. Configure a writable absolute queue path for deployments whose plugin working directory is ephemeral.
 
-Only an explicit user request sends asynchronous prewarm lookups to streaming provider: one lookup for a movie and one per already-aired episode for a series. Registration does not wait for those lookups. Future episodes of an ongoing series are added on schedule without prewarming; playback always performs a fresh resolution.
+Registration and collection sync never contact the streaming provider. When the user presses Play, the plugin makes one stream request for that movie or episode, caches the complete response briefly, and Silo exposes the matching profile plus additional results without repeating the provider request. Future episodes of an ongoing series are added on schedule without prewarming.
 
 Movie runtimes come from TMDB movie details when configured, with Cinemeta as fallback. Episode runtimes come from Cinemeta or TVMaze. Silo stores the canonical runtime before playback so growing HLS playlists do not make the seek bar expand second by second.
 

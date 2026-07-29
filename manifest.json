@@ -140,16 +140,6 @@
             "label": "Fallback to Any Stream",
             "description": "Return 1 stream if no profiles match.",
             "control": "ADMIN_FORM_CONTROL_SWITCH"
-          },
-          {
-            "key": "selection_mode",
-            "label": "Stream Selection Mode",
-            "description": "Create one version per configured profile, or use Picker to show all provider streams when Play is pressed.",
-            "control": "ADMIN_FORM_CONTROL_SELECT",
-            "options": [
-              {"value":"max_versions","label":"One version per profile"},
-              {"value":"picker","label":"Stream picker"}
-            ]
           }
         ],
         "submit_label": "Save streaming provider connection"

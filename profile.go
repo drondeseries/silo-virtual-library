@@ -25,13 +25,7 @@ type QualityConfig struct {
 	EnableProfiles      bool             `json:"enable_quality_profiles"`
 	Profiles            []QualityProfile `json:"quality_profiles"`
 	FallbackToAnyStream bool             `json:"fallback_to_any_stream"`
-	SelectionMode       string           `json:"selection_mode"`
 }
-
-const (
-	SelectionModeMaxVersions = "max_versions"
-	SelectionModePicker      = "picker"
-)
 
 // decodeQualityProfiles accepts both the typed array emitted by newer Silo
 // admin forms and the JSON string emitted by older forms.
@@ -58,13 +52,6 @@ func decodeQualityProfiles(raw any) ([]QualityProfile, error) {
 }
 
 func (q *QualityConfig) Validate() error {
-	q.SelectionMode = strings.ToLower(strings.TrimSpace(q.SelectionMode))
-	if q.SelectionMode == "" {
-		q.SelectionMode = SelectionModeMaxVersions
-	}
-	if q.SelectionMode != SelectionModeMaxVersions && q.SelectionMode != SelectionModePicker {
-		return fmt.Errorf("selection_mode must be %q or %q", SelectionModeMaxVersions, SelectionModePicker)
-	}
 	if !q.EnableProfiles {
 		return nil
 	}

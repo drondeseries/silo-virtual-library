@@ -171,8 +171,8 @@ func TestQualityProfiles(t *testing.T) {
 	}
 
 	variants := resolver.GetVariants(ctx, "virtual://movie/tt0133093")
-	if len(variants) != 4 {
-		t.Fatalf("Expected one version per profile, got %d", len(variants))
+	if len(variants) != 5 {
+		t.Fatalf("Expected one version per profile plus More results, got %d", len(variants))
 	}
 	if strings.Contains(variants[0].VirtualURI, "result=") {
 		t.Fatalf("Expected provider-neutral variant URI: %s", variants[0].VirtualURI)
@@ -221,33 +221,14 @@ func TestQualityConfigValidation(t *testing.T) {
 	}
 }
 
-func TestQualityConfigSelectionModeDefaultsAndValidates(t *testing.T) {
-	qc := QualityConfig{}
-	if err := qc.Validate(); err != nil {
-		t.Fatalf("default selection mode rejected: %v", err)
-	}
-	if qc.SelectionMode != SelectionModeMaxVersions {
-		t.Fatalf("default selection mode = %q, want %q", qc.SelectionMode, SelectionModeMaxVersions)
-	}
-	qc.SelectionMode = SelectionModePicker
-	if err := qc.Validate(); err != nil {
-		t.Fatalf("picker selection mode rejected: %v", err)
-	}
-	qc.SelectionMode = "unknown"
-	if err := qc.Validate(); err == nil {
-		t.Fatal("unknown selection mode accepted")
-	}
-}
-
-func TestPickerSelectionModeDoesNotMaterializeVariants(t *testing.T) {
+func TestQualityProfilesAlwaysMaterializeConfiguredVariants(t *testing.T) {
 	resolver := &manifestStreamResolver{}
 	resolver.Configure(resolverConfig{Quality: QualityConfig{
 		EnableProfiles: true,
-		SelectionMode:  SelectionModePicker,
 		Profiles:       []QualityProfile{{Label: "1080p"}},
 	}})
-	if got := resolver.GetConfiguredVariants("virtual://movie/tt0133093"); len(got) != 0 {
-		t.Fatalf("configured variants in picker mode = %d, want 0", len(got))
+	if got := resolver.GetConfiguredVariants("virtual://movie/tt0133093"); len(got) != 1 {
+		t.Fatalf("configured variants = %d, want 1", len(got))
 	}
 }
 

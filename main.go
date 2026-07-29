@@ -49,8 +49,17 @@ type resolverConfig struct {
 }
 type manifestStreamResolver struct {
 	client *http.Client
-	mu     sync.RWMutex
-	config resolverConfig
+	mu          sync.RWMutex
+	config      resolverConfig
+	cacheMu     sync.Mutex
+	cache       map[string]candidateCacheEntry
+}
+
+const candidateCacheTTL = 10 * time.Minute
+
+type candidateCacheEntry struct {
+	candidates []StreamCandidate
+	expiresAt  time.Time
 }
 
 type stremioResponse struct {
@@ -61,6 +70,13 @@ func (c *manifestStreamResolver) Configure(config resolverConfig) {
 	c.mu.Lock()
 	c.config = config
 	c.mu.Unlock()
+	c.cacheMu.Lock()
+	c.cache = nil
+	c.cacheMu.Unlock()
+}
+
+func cloneCandidates(candidates []StreamCandidate) []StreamCandidate {
+	return append([]StreamCandidate(nil), candidates...)
 }
 
 func (c *manifestStreamResolver) Resolve(ctx context.Context, virtualPath string) (string, error) {
@@ -149,6 +165,14 @@ func (c *manifestStreamResolver) GetCandidates(ctx context.Context, virtualPath 
 			return nil, mediaType, mediaID, err
 		}
 	}
+	cacheKey := mediaType + "|" + mediaID
+	c.cacheMu.Lock()
+	if entry, ok := c.cache[cacheKey]; ok && time.Now().Before(entry.expiresAt) {
+		candidates := cloneCandidates(entry.candidates)
+		c.cacheMu.Unlock()
+		return candidates, mediaType, mediaID, nil
+	}
+	c.cacheMu.Unlock()
 
 	c.mu.RLock()
 	manifestURL := c.config.ManifestURL
@@ -184,6 +208,12 @@ func (c *manifestStreamResolver) GetCandidates(ctx context.Context, virtualPath 
 			validCandidates = append(validCandidates, stream)
 		}
 	}
+	c.cacheMu.Lock()
+	if c.cache == nil {
+		c.cache = make(map[string]candidateCacheEntry)
+	}
+	c.cache[cacheKey] = candidateCacheEntry{candidates: cloneCandidates(validCandidates), expiresAt: time.Now().Add(candidateCacheTTL)}
+	c.cacheMu.Unlock()
 	return validCandidates, mediaType, mediaID, nil
 }
 
@@ -232,35 +262,7 @@ func (c *manifestStreamResolver) normalizeSeriesProviderID(ctx context.Context, 
 }
 
 func (c *manifestStreamResolver) GetVariants(ctx context.Context, virtualPath string) []runtimehost.VirtualMediaVariant {
-	var variants []runtimehost.VirtualMediaVariant
-	c.mu.RLock()
-	config := c.config.Quality
-	c.mu.RUnlock()
-
-	if !config.EnableProfiles || config.SelectionMode == SelectionModePicker {
-		return variants
-	}
-	candidates, _, _, err := c.GetCandidates(ctx, virtualPath)
-	if err != nil || len(candidates) == 0 {
-		return variants
-	}
-	for _, p := range config.Profiles {
-		var matched []StreamCandidate
-		for _, cand := range candidates {
-			if matchProfile(cand, p) {
-				matched = append(matched, cand)
-			}
-		}
-		if len(matched) > 0 {
-			sortCandidatesForProfile(matched, p)
-			candidate := matched[0]
-			values := url.Values{}
-			values.Set("profile", p.Label)
-			label := strings.TrimSpace(p.Label + " · " + candidateDisplayName(candidate))
-			variants = append(variants, runtimehost.VirtualMediaVariant{VirtualURI: virtualPath + "?" + values.Encode(), Label: label, Resolution: candidate.Resolution, CodecVideo: candidate.CodecVideo, CodecAudio: candidate.CodecAudio, HDR: candidate.HDR})
-		}
-	}
-	return variants
+	return c.GetConfiguredVariants(virtualPath)
 }
 
 func profileByLabel(profiles []QualityProfile, label string) QualityProfile {
@@ -299,25 +301,33 @@ func (c *manifestStreamResolver) GetConfiguredVariants(virtualPath string) []run
 	c.mu.RLock()
 	config := c.config.Quality
 	c.mu.RUnlock()
-	if !config.EnableProfiles || config.SelectionMode == SelectionModePicker {
-		return nil
-	}
-	variants := make([]runtimehost.VirtualMediaVariant, 0, len(config.Profiles))
-	for _, profile := range config.Profiles {
-		if strings.TrimSpace(profile.Label) == "" {
-			continue
+	variants := make([]runtimehost.VirtualMediaVariant, 0, len(config.Profiles)+1)
+	if config.EnableProfiles {
+		for _, profile := range config.Profiles {
+			if strings.TrimSpace(profile.Label) == "" {
+				continue
+			}
+			values := url.Values{}
+			values.Set("profile", profile.Label)
+			variants = append(variants, runtimehost.VirtualMediaVariant{
+				VirtualURI: virtualPath + "?" + values.Encode(),
+				Label:      profile.Label,
+				Resolution: profile.Resolution,
+				CodecVideo: profile.CodecVideo,
+				CodecAudio: profile.CodecAudio,
+				HDR:        profile.HDR,
+			})
 		}
-		values := url.Values{}
-		values.Set("profile", profile.Label)
-		variants = append(variants, runtimehost.VirtualMediaVariant{
-			VirtualURI: virtualPath + "?" + values.Encode(),
-			Label:      profile.Label,
-			Resolution: profile.Resolution,
-			CodecVideo: profile.CodecVideo,
-			CodecAudio: profile.CodecAudio,
-			HDR:        profile.HDR,
-		})
 	}
+	// This is an explicit just-in-time action. It is not a provider URL and
+	// resolves to the best candidate while Silo persists the complete response
+	// as selectable versions during the same Play request.
+	values := url.Values{}
+	values.Set("results", "all")
+	variants = append(variants, runtimehost.VirtualMediaVariant{
+		VirtualURI: virtualPath + "?" + values.Encode(),
+		Label:      "More results…",
+	})
 	return variants
 }
 
@@ -410,8 +420,6 @@ func (s *runtimeServer) Configure(_ context.Context, request *pb.ConfigureReques
 		var qc QualityConfig
 		qc.EnableProfiles, _ = values["enable_quality_profiles"].(bool)
 		qc.FallbackToAnyStream, _ = values["fallback_to_any_stream"].(bool)
-		qc.SelectionMode, _ = values["selection_mode"].(string)
-
 		profiles, err := decodeQualityProfiles(values["quality_profiles"])
 		if err != nil {
 			return nil, fmt.Errorf("quality_profiles: %w", err)
