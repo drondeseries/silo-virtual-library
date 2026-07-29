@@ -227,8 +227,8 @@ func TestQualityProfilesAlwaysMaterializeConfiguredVariants(t *testing.T) {
 		EnableProfiles: true,
 		Profiles:       []QualityProfile{{Label: "1080p"}},
 	}})
-	if got := resolver.GetConfiguredVariants("virtual://movie/tt0133093"); len(got) != 1 {
-		t.Fatalf("configured variants = %d, want 1", len(got))
+	if got := resolver.GetConfiguredVariants("virtual://movie/tt0133093"); len(got) != 2 {
+		t.Fatalf("configured variants = %d, want 2 (profile plus More results)", len(got))
 	}
 }
 
