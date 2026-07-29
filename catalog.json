@@ -3,7 +3,7 @@
     {
       "manifest": {
         "plugin_id": "com.drondeseries.silo-virtual-library",
-        "version": "0.4.20",
+        "version": "0.4.25",
         "silo_api_version": "v1",
         "capabilities": [
           {
@@ -72,7 +72,7 @@
             "key": "streaming",
             "title": "streaming provider",
             "description": "Connection to the configured streaming provider Stremio addon.",
-            "json_schema": "{\"type\":\"object\",\"properties\":{\"manifest_url\":{\"type\":\"string\",\"format\":\"uri\"},\"movie_library_id\":{\"type\":\"integer\",\"minimum\":1},\"series_library_id\":{\"type\":\"integer\",\"minimum\":1},\"tmdb_api_key\":{\"type\":\"string\"},\"monitor_file\":{\"type\":\"string\",\"default\":\".silo-virtual-library-monitored.json\"},\"allow_insecure_http\":{\"type\":\"boolean\",\"default\":false}},\"required\":[\"manifest_url\",\"movie_library_id\",\"series_library_id\"],\"additionalProperties\":false}",
+            "json_schema": "{\"type\":\"object\",\"properties\":{\"manifest_url\":{\"type\":\"string\",\"format\":\"uri\"},\"movie_library_id\":{\"type\":\"integer\",\"minimum\":1},\"series_library_id\":{\"type\":\"integer\",\"minimum\":1},\"tmdb_api_key\":{\"type\":\"string\"},\"monitor_file\":{\"type\":\"string\",\"default\":\".silo-virtual-library-monitored.json\"},\"allow_insecure_http\":{\"type\":\"boolean\",\"default\":false},\"enable_quality_profiles\":{\"type\":\"boolean\",\"default\":false},\"quality_profiles\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"label\":{\"type\":\"string\"},\"resolution\":{\"type\":\"string\"},\"include_regex\":{\"type\":\"string\"},\"exclude_regex\":{\"type\":\"string\"},\"preferred_order\":{\"type\":\"integer\"},\"codec_video\":{\"type\":\"string\"},\"codec_audio\":{\"type\":\"string\"},\"hdr\":{\"type\":\"string\"}},\"required\":[\"label\"]}},\"selection_mode\":{\"type\":\"string\",\"enum\":[\"max_versions\",\"picker\"],\"default\":\"max_versions\"},\"fallback_to_any_stream\":{\"type\":\"boolean\",\"default\":false}},\"required\":[\"manifest_url\",\"movie_library_id\",\"series_library_id\"],\"additionalProperties\":false}",
             "required": true,
             "admin_form": {
               "fields": [
@@ -80,21 +80,21 @@
                   "key": "movie_library_id",
                   "label": "Movies Library ID",
                   "description": "Destination Silo Movies library.",
-                  "control": 4,
+                  "control": "ADMIN_FORM_CONTROL_NUMBER",
                   "required": true
                 },
                 {
                   "key": "series_library_id",
                   "label": "Series Library ID",
                   "description": "Destination Silo Series library.",
-                  "control": 4,
+                  "control": "ADMIN_FORM_CONTROL_NUMBER",
                   "required": true
                 },
                 {
                   "key": "manifest_url",
                   "label": "Manifest URL",
                   "description": "The complete tokenized streaming provider URL ending in /manifest.json.",
-                  "control": 3,
+                  "control": "ADMIN_FORM_CONTROL_PASSWORD",
                   "placeholder": "https://…/manifest.json",
                   "required": true,
                   "secret": true
@@ -103,21 +103,56 @@
                   "key": "tmdb_api_key",
                   "label": "TMDB API Token",
                   "description": "Optional TMDB v4 token or v3 API key used to distinguish theatrical from home-media releases.",
-                  "control": 3,
+                  "control": "ADMIN_FORM_CONTROL_PASSWORD",
                   "secret": true
                 },
                 {
                   "key": "allow_insecure_http",
                   "label": "Allow local HTTP",
                   "description": "Allow plain HTTP only for localhost, .local, single-label Docker/service names, or private IPs. HTTPS remains the default.",
-                  "control": 5
+                  "control": "ADMIN_FORM_CONTROL_SWITCH"
                 },
                 {
                   "key": "monitor_file",
                   "label": "Monitored Queue File",
                   "description": "Writable path used to persist queued media across plugin restarts.",
-                  "control": 1,
+                  "control": "ADMIN_FORM_CONTROL_TEXT",
                   "placeholder": ".silo-virtual-library-monitored.json"
+                },
+                {
+                  "key": "enable_quality_profiles",
+                  "label": "Enable Quality Profiles",
+                  "description": "Use configurable quality profiles to match streaming provider.",
+                  "control": "ADMIN_FORM_CONTROL_SWITCH"
+                },
+                {
+                  "key": "quality_profiles",
+                  "label": "Quality Profiles",
+                  "description": "Configure profiles with constraints.",
+                  "control": "ADMIN_FORM_CONTROL_TEXTAREA",
+                  "rows": 6
+                },
+                {
+                  "key": "fallback_to_any_stream",
+                  "label": "Fallback to Any Stream",
+                  "description": "Return 1 stream if no profiles match.",
+                  "control": "ADMIN_FORM_CONTROL_SWITCH"
+                },
+                {
+                  "key": "selection_mode",
+                  "label": "Stream Selection Mode",
+                  "description": "Create one version per configured profile, or use Picker to show all provider streams when Play is pressed.",
+                  "control": "ADMIN_FORM_CONTROL_SELECT",
+                  "options": [
+                    {
+                      "value": "max_versions",
+                      "label": "One version per profile"
+                    },
+                    {
+                      "value": "picker",
+                      "label": "Stream picker"
+                    }
+                  ]
                 }
               ],
               "submit_label": "Save streaming provider connection"
@@ -126,19 +161,19 @@
         ]
       },
       "repo_url": "https://github.com/drondeseries/silo-virtual-library",
-      "checksums_url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.20/checksums.txt",
+      "checksums_url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.25/checksums.txt",
       "binaries": {
         "linux/amd64": {
-          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.20/plugin-linux-amd64",
-          "checksum": "c6a55c2d66a873f049258db373b469fd8091e71a38a48f1814214e80a8ead772"
+          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.25/plugin-linux-amd64",
+          "checksum": "40809372be2ec187092d318de3634782d3d2fa555bb1403601fef92b5398b08b"
         },
         "linux/arm64": {
-          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.20/plugin-linux-arm64",
-          "checksum": "17856f1124db2b550593c8e1acd70c66327bb40f14f1678a3b4bf0784ba7926e"
+          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.25/plugin-linux-arm64",
+          "checksum": "4853b45b4ffe44c1b0be47b2fc6c09567633168e1d22f3fde11532ece7ad0e2e"
         },
         "darwin/arm64": {
-          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.20/plugin-darwin-arm64",
-          "checksum": "654407dbcf5032df620d8c62523bdfb8af74c6c196991746e8df2d774ba7978f"
+          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.25/plugin-darwin-arm64",
+          "checksum": "fb26eb9d6594fe483b5e94da8e5bc1ff7758477655c7a0f9baa4bff871be5c22"
         }
       }
     }
