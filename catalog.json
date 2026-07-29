@@ -80,21 +80,21 @@
                   "key": "movie_library_id",
                   "label": "Movies Library ID",
                   "description": "Destination Silo Movies library.",
-                  "control": "ADMIN_FORM_CONTROL_NUMBER",
+                  "control": 4,
                   "required": true
                 },
                 {
                   "key": "series_library_id",
                   "label": "Series Library ID",
                   "description": "Destination Silo Series library.",
-                  "control": "ADMIN_FORM_CONTROL_NUMBER",
+                  "control": 4,
                   "required": true
                 },
                 {
                   "key": "manifest_url",
                   "label": "Manifest URL",
                   "description": "The complete tokenized streaming provider URL ending in /manifest.json.",
-                  "control": "ADMIN_FORM_CONTROL_PASSWORD",
+                  "control": 3,
                   "placeholder": "https://…/manifest.json",
                   "required": true,
                   "secret": true
@@ -103,46 +103,46 @@
                   "key": "tmdb_api_key",
                   "label": "TMDB API Token",
                   "description": "Optional TMDB v4 token or v3 API key used to distinguish theatrical from home-media releases.",
-                  "control": "ADMIN_FORM_CONTROL_PASSWORD",
+                  "control": 3,
                   "secret": true
                 },
                 {
                   "key": "allow_insecure_http",
                   "label": "Allow local HTTP",
                   "description": "Allow plain HTTP only for localhost, .local, single-label Docker/service names, or private IPs. HTTPS remains the default.",
-                  "control": "ADMIN_FORM_CONTROL_SWITCH"
+                  "control": 5
                 },
                 {
                   "key": "monitor_file",
                   "label": "Monitored Queue File",
                   "description": "Writable path used to persist queued media across plugin restarts.",
-                  "control": "ADMIN_FORM_CONTROL_TEXT",
+                  "control": 1,
                   "placeholder": ".silo-virtual-library-monitored.json"
                 },
                 {
                   "key": "enable_quality_profiles",
                   "label": "Enable Quality Profiles",
                   "description": "Use configurable quality profiles to match streaming provider.",
-                  "control": "ADMIN_FORM_CONTROL_SWITCH"
+                  "control": 5
                 },
                 {
                   "key": "quality_profiles",
                   "label": "Quality Profiles",
                   "description": "Configure profiles with constraints.",
-                  "control": "ADMIN_FORM_CONTROL_TEXTAREA",
+                  "control": 2,
                   "rows": 6
                 },
                 {
                   "key": "fallback_to_any_stream",
                   "label": "Fallback to Any Stream",
                   "description": "Return 1 stream if no profiles match.",
-                  "control": "ADMIN_FORM_CONTROL_SWITCH"
+                  "control": 5
                 },
                 {
                   "key": "selection_mode",
                   "label": "Stream Selection Mode",
                   "description": "Create one version per configured profile, or use Picker to show all provider streams when Play is pressed.",
-                  "control": "ADMIN_FORM_CONTROL_SELECT",
+                  "control": 6,
                   "options": [
                     {
                       "value": "max_versions",
