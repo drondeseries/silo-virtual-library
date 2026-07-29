@@ -483,11 +483,15 @@ func (s *playbackServer) Handle(ctx context.Context, request *pb.HandleHTTPReque
 			return jsonResponse(http.StatusBadGateway, map[string]string{"error": err.Error()})
 		}
 		streams := make([]map[string]any, 0, len(candidates))
+		resultSeparator := "?"
+		if strings.Contains(path, "?") {
+			resultSeparator = "&"
+		}
 		for _, candidate := range candidates {
 			id := candidateVariantID(candidate)
 			streams = append(streams, map[string]any{
 				"id": id, "label": candidateDisplayName(candidate),
-				"uri":        path + "?result=" + url.QueryEscape(id),
+				"uri":        path + resultSeparator + "result=" + url.QueryEscape(id),
 				"resolution": candidate.Resolution, "codec_video": candidate.CodecVideo,
 				"codec_audio": candidate.CodecAudio, "hdr": candidate.HDR,
 				"source_type": candidate.SourceType, "file_size": candidate.FileSize,
