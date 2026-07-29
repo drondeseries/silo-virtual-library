@@ -458,6 +458,18 @@ func (s *playbackServer) Handle(ctx context.Context, request *pb.HandleHTTPReque
 	if strings.HasPrefix(path, "/resolve/") {
 		path = strings.TrimPrefix(path, "/resolve/")
 	}
+	if strings.HasPrefix(request.GetPath(), "/profiles/") {
+		path = strings.TrimPrefix(request.GetPath(), "/profiles/")
+		if !strings.HasPrefix(path, virtualPathPrefix) {
+			return jsonResponse(http.StatusNotFound, map[string]string{"error": "path is not handled by virtual profiles"})
+		}
+		configured := configuredVariants(s.resolver, path)
+		variants := make([]map[string]any, 0, len(configured))
+		for _, v := range configured {
+			variants = append(variants, map[string]any{"virtual_uri": v.VirtualURI, "label": v.Label, "resolution": v.Resolution, "codec_video": v.CodecVideo, "codec_audio": v.CodecAudio, "hdr": v.HDR})
+		}
+		return jsonResponse(http.StatusOK, map[string]any{"variants": variants})
+	}
 	if !strings.HasPrefix(path, virtualPathPrefix) {
 		return jsonResponse(http.StatusNotFound, map[string]string{"error": "path is not handled by virtual playback"})
 	}
