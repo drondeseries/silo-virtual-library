@@ -138,7 +138,6 @@ func TestQualityProfiles(t *testing.T) {
 			{Label: "Include HDR10", IncludeRegex: "(?i)hdr10"},
 		},
 		FallbackToAnyStream: true,
-		MaxVersionsPerItem:  4,
 	}
 	qc.Validate()
 
@@ -173,7 +172,7 @@ func TestQualityProfiles(t *testing.T) {
 
 	variants := resolver.GetVariants(ctx, "virtual://movie/tt0133093")
 	if len(variants) != 4 {
-		t.Fatalf("Expected 4 profile placeholders, got %d", len(variants))
+		t.Fatalf("Expected one version per profile, got %d", len(variants))
 	}
 	if strings.Contains(variants[0].VirtualURI, "result=") {
 		t.Fatalf("Expected provider-neutral variant URI: %s", variants[0].VirtualURI)

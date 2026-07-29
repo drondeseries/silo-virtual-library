@@ -302,36 +302,23 @@ func (c *manifestStreamResolver) GetConfiguredVariants(virtualPath string) []run
 	if !config.EnableProfiles || config.SelectionMode == SelectionModePicker {
 		return nil
 	}
-	max := config.MaxVersionsPerItem
-	if max <= 0 {
-		max = len(config.Profiles)
-	}
-	variants := make([]runtimehost.VirtualMediaVariant, 0, minInt(max, len(config.Profiles)))
+	variants := make([]runtimehost.VirtualMediaVariant, 0, len(config.Profiles))
 	for _, profile := range config.Profiles {
 		if strings.TrimSpace(profile.Label) == "" {
 			continue
 		}
-		variantURI := virtualPath + "?profile=" + url.QueryEscape(profile.Label)
+		values := url.Values{}
+		values.Set("profile", profile.Label)
 		variants = append(variants, runtimehost.VirtualMediaVariant{
-			VirtualURI: variantURI,
+			VirtualURI: virtualPath + "?" + values.Encode(),
 			Label:      profile.Label,
 			Resolution: profile.Resolution,
 			CodecVideo: profile.CodecVideo,
 			CodecAudio: profile.CodecAudio,
 			HDR:        profile.HDR,
 		})
-		if len(variants) >= max {
-			break
-		}
 	}
 	return variants
-}
-
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 func parseVirtualPath(virtualPath string) (string, string, error) {
@@ -424,12 +411,6 @@ func (s *runtimeServer) Configure(_ context.Context, request *pb.ConfigureReques
 		qc.EnableProfiles, _ = values["enable_quality_profiles"].(bool)
 		qc.FallbackToAnyStream, _ = values["fallback_to_any_stream"].(bool)
 		qc.SelectionMode, _ = values["selection_mode"].(string)
-
-		if maxV, ok := values["max_versions_per_item"].(float64); ok {
-			qc.MaxVersionsPerItem = int(maxV)
-		} else {
-			qc.MaxVersionsPerItem = 3
-		}
 
 		profiles, err := decodeQualityProfiles(values["quality_profiles"])
 		if err != nil {

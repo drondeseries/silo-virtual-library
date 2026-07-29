@@ -25,7 +25,6 @@ type QualityConfig struct {
 	EnableProfiles      bool             `json:"enable_quality_profiles"`
 	Profiles            []QualityProfile `json:"quality_profiles"`
 	FallbackToAnyStream bool             `json:"fallback_to_any_stream"`
-	MaxVersionsPerItem  int              `json:"max_versions_per_item"`
 	SelectionMode       string           `json:"selection_mode"`
 }
 
@@ -99,9 +98,6 @@ func (q *QualityConfig) Validate() error {
 			}
 			p.exclude = r
 		}
-	}
-	if q.MaxVersionsPerItem <= 0 {
-		q.MaxVersionsPerItem = 3
 	}
 	return nil
 }
