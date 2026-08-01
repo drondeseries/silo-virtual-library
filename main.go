@@ -703,7 +703,7 @@ func streamEndpoint(manifestURL, mediaType, mediaID string) (string, error) {
 func streamEndpointWithPolicy(manifestURL, mediaType, mediaID string, allowInsecure bool) (string, error) {
 	manifest, err := url.Parse(strings.TrimSpace(manifestURL))
 	if err != nil || manifest.Host == "" || (manifest.Scheme != "https" && manifest.Scheme != "http") || (manifest.Scheme != "https" && !allowInsecure) {
-		return "", errors.New("a valid HTTPS streaming provider manifest URL is required")
+		return "", errors.New("a valid streaming provider manifest URL is required (HTTPS, or HTTP with Allow local HTTP enabled for private/local hosts)")
 	}
 	if manifest.Scheme == "http" && !isPrivateHost(manifest.Hostname()) {
 		return "", errors.New("insecure HTTP is allowed only for private/local streaming provider hosts")
