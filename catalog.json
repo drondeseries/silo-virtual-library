@@ -3,7 +3,7 @@
     {
       "manifest": {
         "plugin_id": "com.drondeseries.silo-virtual-library",
-        "version": "0.4.29",
+        "version": "0.4.30",
         "silo_api_version": "v1",
         "capabilities": [
           {
@@ -81,23 +81,25 @@
             "key": "streaming",
             "title": "streaming provider",
             "description": "Connection to the configured streaming provider Stremio addon.",
-            "json_schema": "{\"type\":\"object\",\"properties\":{\"manifest_url\":{\"type\":\"string\",\"format\":\"uri\",\"maxLength\":4096},\"movie_library_id\":{\"type\":\"integer\",\"minimum\":1},\"series_library_id\":{\"type\":\"integer\",\"minimum\":1},\"tmdb_api_key\":{\"type\":\"string\",\"maxLength\":4096},\"monitor_file\":{\"type\":\"string\",\"maxLength\":4096,\"default\":\".silo-virtual-library-monitored.json\"},\"allow_insecure_http\":{\"type\":\"boolean\",\"default\":false},\"cache_ttl_minutes\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":10080,\"default\":10},\"enable_quality_profiles\":{\"type\":\"boolean\",\"default\":false},\"quality_profiles\":{\"type\":\"array\",\"maxItems\":10,\"items\":{\"type\":\"object\",\"properties\":{\"label\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":128},\"resolution\":{\"type\":\"string\",\"maxLength\":64},\"include_regex\":{\"type\":\"string\",\"maxLength\":1024},\"exclude_regex\":{\"type\":\"string\",\"maxLength\":1024},\"preferred_order\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":10000},\"codec_video\":{\"type\":\"string\",\"maxLength\":64},\"codec_audio\":{\"type\":\"string\",\"maxLength\":64},\"hdr\":{\"type\":\"string\",\"maxLength\":64}},\"required\":[\"label\"],\"additionalProperties\":false}},\"fallback_to_any_stream\":{\"type\":\"boolean\",\"default\":false}},\"required\":[\"manifest_url\",\"movie_library_id\",\"series_library_id\"],\"additionalProperties\":false}",
+            "json_schema": "{\"type\":\"object\",\"properties\":{\"manifest_url\":{\"type\":\"string\",\"format\":\"uri\",\"maxLength\":4096},\"movie_library_id\":{\"type\":\"integer\",\"minimum\":1,\"default\":1},\"series_library_id\":{\"type\":\"integer\",\"minimum\":1,\"default\":2},\"tmdb_api_key\":{\"type\":\"string\",\"maxLength\":4096},\"monitor_file\":{\"type\":\"string\",\"maxLength\":4096,\"default\":\".silo-virtual-library-monitored.json\"},\"allow_insecure_http\":{\"type\":\"boolean\",\"default\":false},\"cache_ttl_minutes\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":10080,\"default\":10},\"enable_quality_profiles\":{\"type\":\"boolean\",\"default\":false},\"quality_profiles\":{\"type\":\"array\",\"maxItems\":10,\"items\":{\"type\":\"object\",\"properties\":{\"label\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":128},\"resolution\":{\"type\":\"string\",\"maxLength\":64},\"include_regex\":{\"type\":\"string\",\"maxLength\":1024},\"exclude_regex\":{\"type\":\"string\",\"maxLength\":1024},\"preferred_order\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":10000},\"codec_video\":{\"type\":\"string\",\"maxLength\":64},\"codec_audio\":{\"type\":\"string\",\"maxLength\":64},\"hdr\":{\"type\":\"string\",\"maxLength\":64}},\"required\":[\"label\"],\"additionalProperties\":false}},\"fallback_to_any_stream\":{\"type\":\"boolean\",\"default\":false}},\"required\":[\"manifest_url\"],\"additionalProperties\":false}",
             "required": true,
             "admin_form": {
               "fields": [
                 {
                   "key": "movie_library_id",
-                  "label": "Movies Library ID",
-                  "description": "Destination Silo Movies library.",
-                  "control": 4,
-                  "required": true
+                  "label": "Movies Library",
+                  "description": "Destination Silo Movies library. Need to create one? Go to [Settings -> Libraries](/admin/libraries).",
+                  "control": 3,
+                  "dynamic_options": true,
+                  "required": false
                 },
                 {
                   "key": "series_library_id",
-                  "label": "Series Library ID",
-                  "description": "Destination Silo Series library.",
-                  "control": 4,
-                  "required": true
+                  "label": "Series Library",
+                  "description": "Destination Silo Series library. Need to create one? Go to [Settings -> Libraries](/admin/libraries).",
+                  "control": 3,
+                  "dynamic_options": true,
+                  "required": false
                 },
                 {
                   "key": "manifest_url",

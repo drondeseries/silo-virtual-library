@@ -445,7 +445,20 @@ func (s *runtimeServer) CheckStatus(ctx context.Context, req *pb.CheckStatusRequ
 	return &pb.CheckStatusResponse{Statuses: statuses}, nil
 }
 func (s *runtimeServer) ListConfigOptions(context.Context, *pb.ListConfigOptionsRequest) (*pb.ListConfigOptionsResponse, error) {
-	return &pb.ListConfigOptionsResponse{OptionsByField: map[string]*pb.ConfigOptionList{}}, nil
+	return &pb.ListConfigOptionsResponse{
+		OptionsByField: map[string]*pb.ConfigOptionList{
+			"movie_library_id": {
+				Options: []*pb.ConfigOption{
+					{Value: "1", Label: "Movies (Default)"},
+				},
+			},
+			"series_library_id": {
+				Options: []*pb.ConfigOption{
+					{Value: "2", Label: "Series (Default)"},
+				},
+			},
+		},
+	}, nil
 }
 func (s *runtimeServer) Validate(context.Context, *pb.ValidateRequest) (*pb.ValidateResponse, error) {
 	return &pb.ValidateResponse{FieldErrors: map[string]string{}}, nil

@@ -31,8 +31,11 @@ func newSiloLibrary(host *runtimehost.Client, movieLibraryID, seriesLibraryID in
 	if host == nil {
 		return nil, errors.New("Silo host services are not ready")
 	}
-	if movieLibraryID <= 0 || seriesLibraryID <= 0 {
-		return nil, errors.New("movie_library_id and series_library_id are required")
+	if movieLibraryID <= 0 {
+		movieLibraryID = 1
+	}
+	if seriesLibraryID <= 0 {
+		seriesLibraryID = 2
 	}
 	return &siloLibrary{host: host, movieLibraryID: movieLibraryID, seriesLibraryID: seriesLibraryID, resolver: resolver}, nil
 }
@@ -53,6 +56,13 @@ func configuredFolderID(value any) (int, error) {
 	return 0, errors.New("library ID must be a positive integer")
 }
 
+func canonicalVirtualURI(mediaType, streamID string) string {
+	if mediaType != "movie" {
+		return ""
+	}
+	return virtualPathPrefix + mediaType + "/" + strings.ReplaceAll(streamID, ":", "/")
+}
+
 func (l *siloLibrary) Register(ctx context.Context, item monitoredMedia) error {
 	libraryID := l.movieLibraryID
 	if item.MediaType == "series" {
@@ -61,8 +71,12 @@ func (l *siloLibrary) Register(ctx context.Context, item monitoredMedia) error {
 	if item.MediaFolderID > 0 {
 		libraryID = item.MediaFolderID
 	}
+	// Series playback sources belong to their episode rows.  The Silo host
+	// rejects a series-level VirtualURI/Variants because there is no playable
+	// file at the series container itself. Keep the canonical URI only for
+	// movies and attach episode URIs below.
 	canonicalStreamID := strings.ReplaceAll(item.StreamID, ":", "/")
-	virtualURI := virtualPathPrefix + item.MediaType + "/" + canonicalStreamID
+	virtualURI := canonicalVirtualURI(item.MediaType, item.StreamID)
 	episodes := make([]runtimehost.VirtualEpisode, 0, len(item.Episodes))
 	for _, episode := range item.Episodes {
 		if episode.Season <= 0 || episode.Episode <= 0 {
