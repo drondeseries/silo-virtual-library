@@ -19,9 +19,15 @@ https://raw.githubusercontent.com/drondeseries/silo-virtual-library/main/catalog
 4. The resolver returns a time-limited HLS URL for immediate playback.
 5. Silo or its client streams from that URL; this plugin stores no media locally.
 
-After installation, configure the plugin's **streaming provider Manifest URL** in Silo. The plugin derives the Stremio stream endpoint from that URL, requests streams for the IMDb identifier, and returns the first valid HTTP or HTTPS source. Manifest credentials are held in Silo-managed secret configuration and must not be committed to the repository.
+After installation, you need two virtual libraries before the plugin can register media:
 
-When Virtual Library is selected as a request connection, compatible Silo builds automatically populate the generic Base URL and API key fields with plugin-managed values. Administrators only need to save the connection and configure the plugin settings described above.
+1. **Create virtual libraries**: Go to **Settings → Libraries → Add Library**. On the **Folders** tab, click **Add Virtual** — this inserts a `virtual://` path that tells Silo the library holds only virtual media with no local storage. Create one Movies library (`virtual://movies`) and one Series library (`virtual://series`).
+
+2. **Configure the plugin**: Open the plugin settings and enter the **streaming provider Manifest URL** (the tokenized Stremio addon URL ending in `/manifest.json`). The Movies and Series library dropdowns will show your newly created virtual libraries — select them. HTTPS is required by default; toggle **Allow local HTTP** for private hosts (localhost, `.local`, Docker service names, private IPs).
+
+The plugin derives the Stremio stream endpoint from that URL, requests streams for the IMDb identifier, and returns the first valid HTTP or HTTPS source. Manifest credentials are held in Silo-managed secret configuration and must not be committed to the repository.
+
+When Virtual Library is selected as a request connection, compatible Silo builds automatically populate the generic Base URL and API key fields with plugin-managed values.
 
 ## Requests and monitored media
 
