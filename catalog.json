@@ -106,7 +106,7 @@
                   "label": "Manifest URL",
                   "description": "The complete tokenized streaming provider URL ending in /manifest.json.",
                   "control": 3,
-                  "placeholder": "https://\u2026/manifest.json",
+                  "placeholder": "https://…/manifest.json",
                   "required": true,
                   "secret": true
                 },
@@ -167,15 +167,15 @@
       "binaries": {
         "linux/amd64": {
           "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.29/plugin-linux-amd64",
-          "checksum": "725f918c7389358fa228024ea89012331fb661b5c3eccbc4575ac2452da91eaa"
+          "checksum": "fcb88ae2f862034f4abfad73c60f4914cc5a3357003aba0d21495d2ceb6bed5d"
         },
         "linux/arm64": {
           "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.29/plugin-linux-arm64",
-          "checksum": "5d8f9eeaaff0ab5c82ce20716886b6aa948dd1cc7eaf80a2fc4b59de193480ce"
+          "checksum": "3f8e740246ddb685b2049c83d4c7178b1ff3157edea0147a9a08031c9e78a856"
         },
         "darwin/arm64": {
           "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.29/plugin-darwin-arm64",
-          "checksum": "14720b5ffe72d0d931cc3f442e9b394ec27f7b13079705bef00b09cdc323eed2"
+          "checksum": "f7f6999ef6274cce9e348713122d82a8ed4311168450dec1a4c408ebb40f10ac"
         }
       }
     }
