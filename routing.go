@@ -27,7 +27,15 @@ var (
 	tmdbBaseURL      = "https://api.themoviedb.org/3"
 	cinemetaBaseURL  = "https://v3-cinemeta.strem.io"
 	tvmazeBaseURL    = "https://api.tvmaze.com"
+	metadataClient   = newRestrictedRedirectHTTPClient(20 * time.Second)
 	errNoHomeRelease = errors.New("TMDB metadata has no digital or physical release date")
+)
+
+const (
+	maxMonitoredItems    = 10000
+	maxMonitorStateBytes = 32 << 20
+	maxMonitoredEpisodes = 10000
+	maxMonitorKeyBytes   = 512
 )
 
 type monitorConfig struct{ TMDBAPIKey, File string }
@@ -80,35 +88,94 @@ func (m *mediaMonitor) register(ctx context.Context, item monitoredMedia) error 
 func newMediaMonitor(resolver streamResolver, logger hclog.Logger) *mediaMonitor {
 	return &mediaMonitor{resolver: resolver, logger: logger, config: monitorConfig{File: ".silo-virtual-library-monitored.json"}, items: map[string]monitoredMedia{}}
 }
-func (m *mediaMonitor) Configure(c monitorConfig) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+func (m *mediaMonitor) Configure(c monitorConfig) error {
+	configured, loaded, err := loadMonitorConfig(c)
+	if err != nil {
+		return err
+	}
+	m.applyConfiguration(configured, loaded, nil, false)
+	return nil
+}
+
+func loadMonitorConfig(c monitorConfig) (monitorConfig, map[string]monitoredMedia, error) {
 	if c.File == "" {
 		c.File = ".silo-virtual-library-monitored.json"
 	}
-	m.config = c
-	m.items = map[string]monitoredMedia{}
-	data, err := os.ReadFile(c.File)
+	loaded := make(map[string]monitoredMedia)
+	file, err := os.Open(c.File)
 	if err == nil {
-		var items []monitoredMedia
-		if json.Unmarshal(data, &items) == nil {
-			for _, item := range items {
-				m.items[item.Key] = item
-			}
+		defer file.Close()
+		data, readErr := io.ReadAll(io.LimitReader(file, maxMonitorStateBytes+1))
+		if readErr != nil {
+			return monitorConfig{}, nil, fmt.Errorf("read monitored queue: %w", readErr)
 		}
+		if len(data) > maxMonitorStateBytes {
+			return monitorConfig{}, nil, fmt.Errorf("monitored queue exceeds %d bytes", maxMonitorStateBytes)
+		}
+		var items []monitoredMedia
+		if err := json.Unmarshal(data, &items); err != nil {
+			return monitorConfig{}, nil, fmt.Errorf("decode monitored queue: %w", err)
+		}
+		if len(items) > maxMonitoredItems {
+			return monitorConfig{}, nil, fmt.Errorf("monitored queue exceeds %d items", maxMonitoredItems)
+		}
+		for _, item := range items {
+			if err := validateMonitoredMedia(item); err != nil {
+				return monitorConfig{}, nil, fmt.Errorf("invalid monitored queue item: %w", err)
+			}
+			if _, exists := loaded[item.Key]; exists {
+				return monitorConfig{}, nil, fmt.Errorf("monitored queue contains duplicate key %q", item.Key)
+			}
+			loaded[item.Key] = item
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return monitorConfig{}, nil, fmt.Errorf("open monitored queue: %w", err)
 	}
+	return c, loaded, nil
+}
+
+func (m *mediaMonitor) applyConfiguration(c monitorConfig, items map[string]monitoredMedia, registrar virtualMediaRegistrar, replaceRegistrar bool) {
+	m.mu.Lock()
+	m.config = c
+	m.items = items
+	if replaceRegistrar {
+		m.registrar = registrar
+	}
+	m.mu.Unlock()
 }
 func (m *mediaMonitor) remember(item monitoredMedia) error {
+	if err := validateMonitoredMedia(item); err != nil {
+		return err
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	previous, existed := m.items[item.Key]
+	if !existed && len(m.items) >= maxMonitoredItems {
+		return fmt.Errorf("monitored queue is at its %d item limit", maxMonitoredItems)
+	}
 	m.items[item.Key] = item
-	return m.saveLocked()
+	if err := m.saveLocked(); err != nil {
+		if existed {
+			m.items[item.Key] = previous
+		} else {
+			delete(m.items, item.Key)
+		}
+		return err
+	}
+	return nil
 }
 func (m *mediaMonitor) forget(key string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	previous, existed := m.items[key]
 	delete(m.items, key)
-	return m.saveLocked()
+	if err := m.saveLocked(); err != nil {
+		if existed {
+			m.items[key] = previous
+		}
+		return err
+	}
+	return nil
 }
 func (m *mediaMonitor) item(key string) (monitoredMedia, bool) {
 	m.mu.Lock()
@@ -126,6 +193,9 @@ func (m *mediaMonitor) saveLocked() error {
 	if err != nil {
 		return err
 	}
+	if len(data)+1 > maxMonitorStateBytes {
+		return fmt.Errorf("monitored queue exceeds %d bytes", maxMonitorStateBytes)
+	}
 	dir := filepath.Dir(m.config.File)
 	tmp, err := os.CreateTemp(dir, ".silo-monitor-*.tmp")
 	if err != nil {
@@ -134,14 +204,28 @@ func (m *mediaMonitor) saveLocked() error {
 	name := tmp.Name()
 	defer os.Remove(name)
 	if _, err = tmp.Write(append(data, '\n')); err == nil {
-		err = tmp.Close()
-	} else {
-		_ = tmp.Close()
+		err = tmp.Sync()
+	}
+	if closeErr := tmp.Close(); err == nil {
+		err = closeErr
 	}
 	if err != nil {
 		return err
 	}
 	return os.Rename(name, m.config.File)
+}
+
+func validateMonitoredMedia(item monitoredMedia) error {
+	if item.Key == "" || len(item.Key) > maxMonitorKeyBytes || strings.TrimSpace(item.Key) != item.Key {
+		return errors.New("monitored media key is empty, invalid, or too long")
+	}
+	if len(item.Episodes) > maxMonitoredEpisodes {
+		return fmt.Errorf("monitored media exceeds %d episodes", maxMonitoredEpisodes)
+	}
+	if item.MediaType != "movie" && item.MediaType != "series" {
+		return errors.New("monitored media type must be movie or series")
+	}
+	return nil
 }
 
 func mediaFromRequest(r *pb.RequestDescriptor) (monitoredMedia, error) {
@@ -179,8 +263,21 @@ func virtualContentID(item monitoredMedia) string {
 	return ""
 }
 
-func (m *mediaMonitor) evaluate(ctx context.Context, item monitoredMedia) (monitoredMedia, string) {
+func appendUniqueString(values []string, value string) []string {
+	if value == "" {
+		return values
+	}
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
+}
+
+func (m *mediaMonitor) evaluate(ctx context.Context, item monitoredMedia) (monitoredMedia, string, error) {
 	now := time.Now()
+	var metadataErr error
 	if enriched, err := m.fetchCinemeta(ctx, item); err == nil && (item.MediaType != "series" || episodeMetadataComplete(enriched.Episodes)) {
 		item = enriched
 		if item.MediaType == "series" && episodeRuntimeMissing(item.Episodes) {
@@ -194,6 +291,7 @@ func (m *mediaMonitor) evaluate(ctx context.Context, item monitoredMedia) (monit
 				item = fallback
 			} else {
 				m.logger.Warn("fetch series metadata", "key", item.Key, "cinemeta_error", err, "tvmaze_error", fallbackErr)
+				metadataErr = errors.Join(err, fallbackErr)
 			}
 		} else {
 			m.logger.Warn("fetch Cinemeta metadata", "key", item.Key, "error", err)
@@ -207,14 +305,14 @@ func (m *mediaMonitor) evaluate(ctx context.Context, item monitoredMedia) (monit
 		if err != nil {
 			item.Ready = false
 			if errors.Is(err, errNoHomeRelease) {
-				return item, "Movie is theatrical-only; waiting for a home-media release"
+				return item, "Movie is theatrical-only; waiting for a home-media release", nil
 			}
-			return item, "Release metadata unavailable; monitoring will retry"
+			return item, "Release metadata unavailable; monitoring will retry", err
 		}
 		item.Release = release
 		if release.After(now) {
 			item.Ready = false
-			return item, "Movie is not released for home media yet"
+			return item, "Movie is not released for home media yet", nil
 		}
 	}
 	if item.MediaType == "series" {
@@ -228,12 +326,12 @@ func (m *mediaMonitor) evaluate(ctx context.Context, item monitoredMedia) (monit
 		item.Episodes = aired
 		item.Ready = len(aired) > 0
 		if !item.Ready {
-			return item, "Series registered; monitoring for aired episodes"
+			return item, "Series registered; monitoring for aired episodes", metadataErr
 		}
-		return item, fmt.Sprintf("%d aired episodes registered for on-demand playback", len(aired))
+		return item, fmt.Sprintf("%d aired episodes registered for on-demand playback", len(aired)), metadataErr
 	}
 	item.Ready = true
-	return item, "Movie is available for home media"
+	return item, "Movie is available for home media", nil
 }
 
 func episodeList(episodes []virtualEpisode) []virtualEpisode {
@@ -264,41 +362,6 @@ func episodeRuntimeMissing(episodes []virtualEpisode) bool {
 	return false
 }
 
-func (m *mediaMonitor) probeEpisodes(ctx context.Context, streamID string, episodes []virtualEpisode) []virtualEpisode {
-	const concurrency = 4
-	sem := make(chan struct{}, concurrency)
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-	playable := make([]virtualEpisode, 0, len(episodes))
-	for _, episode := range episodes {
-		episode := episode
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			select {
-			case sem <- struct{}{}:
-			case <-ctx.Done():
-				return
-			}
-			defer func() { <-sem }()
-			path := fmt.Sprintf("virtual://series/%s/%d/%d", streamID, episode.Season, episode.Episode)
-			if _, err := m.resolver.Resolve(ctx, path); err == nil {
-				mu.Lock()
-				playable = append(playable, episode)
-				mu.Unlock()
-			}
-		}()
-	}
-	wg.Wait()
-	sort.Slice(playable, func(i, j int) bool {
-		if playable[i].Season != playable[j].Season {
-			return playable[i].Season < playable[j].Season
-		}
-		return playable[i].Episode < playable[j].Episode
-	})
-	return playable
-}
-
 func (s *runtimeServer) Fulfill(ctx context.Context, req *pb.FulfillRequest) (resp *pb.FulfillResponse, err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -310,7 +373,7 @@ func (s *runtimeServer) Fulfill(ctx context.Context, req *pb.FulfillRequest) (re
 	if err != nil {
 		return nil, err
 	}
-	item, message := s.monitor.evaluate(ctx, item)
+	item, message, _ := s.monitor.evaluate(ctx, item)
 	if len(req.GetConnections()) > 0 {
 		folderID, folderErr := configuredFolderID(req.GetConnections()[0].GetConfig().AsMap()["media_folder_id"])
 		if folderErr != nil {
@@ -325,7 +388,7 @@ func (s *runtimeServer) Fulfill(ctx context.Context, req *pb.FulfillRequest) (re
 		message = "Virtual media registered in Silo library"
 	}
 	if err := s.monitor.remember(item); err != nil {
-		s.monitor.logger.Error("persist monitored media", "key", item.Key, "error", err)
+		return nil, fmt.Errorf("persist monitored media: %w", err)
 	}
 	status, external := "queued", "monitored"
 	if item.Ready {
@@ -353,19 +416,25 @@ func (s *runtimeServer) CheckStatus(ctx context.Context, req *pb.CheckStatusRequ
 		if !ok {
 			item = base
 		}
-		item, message := s.monitor.evaluate(ctx, item)
+		item, message, _ := s.monitor.evaluate(ctx, item)
 		if item.Ready {
 			if err := s.monitor.register(ctx, item); err != nil {
 				return nil, fmt.Errorf("register virtual media: %w", err)
 			}
 			message = "Virtual media registered in Silo library"
 			if item.MediaType == "series" {
-				_ = s.monitor.remember(item)
+				if err := s.monitor.remember(item); err != nil {
+					return nil, fmt.Errorf("persist monitored media: %w", err)
+				}
 			} else {
-				_ = s.monitor.forget(item.Key)
+				if err := s.monitor.forget(item.Key); err != nil {
+					return nil, fmt.Errorf("remove monitored media: %w", err)
+				}
 			}
 		} else {
-			_ = s.monitor.remember(item)
+			if err := s.monitor.remember(item); err != nil {
+				return nil, fmt.Errorf("persist monitored media: %w", err)
+			}
 		}
 		status, external := "queued", "monitored"
 		if item.Ready {
@@ -382,7 +451,7 @@ func (s *runtimeServer) Validate(context.Context, *pb.ValidateRequest) (*pb.Vali
 	return &pb.ValidateResponse{FieldErrors: map[string]string{}}, nil
 }
 func (s *runtimeServer) TestConnection(ctx context.Context, _ *pb.TestConnectionRequest) (*pb.TestConnectionResponse, error) {
-	_, err := s.resolver.Resolve(ctx, "virtual://movie/tt0133093")
+	err := s.resolver.ValidateConnection(ctx)
 	if err != nil {
 		return &pb.TestConnectionResponse{Ok: false, Message: err.Error()}, nil
 	}
@@ -414,6 +483,7 @@ func (s *runtimeServer) Run(ctx context.Context, req *pb.RunScheduledTaskRequest
 	}
 	ready, pending := 0, 0
 	keepBySource := make(map[string][]string)
+	reconcileSafeBySource := make(map[string]bool)
 	for _, item := range items {
 		source := item.SourceKey
 		if source == "" {
@@ -421,11 +491,25 @@ func (s *runtimeServer) Run(ctx context.Context, req *pb.RunScheduledTaskRequest
 		}
 		if _, exists := keepBySource[source]; !exists {
 			keepBySource[source] = nil
+			reconcileSafeBySource[source] = true
 		}
-		updated, _ := s.monitor.evaluate(ctx, item)
+		// Keep the previously known content unless an authoritative successful
+		// pass proves it should be absent. Metadata and host failures must never
+		// turn an empty keep-set into destructive reconciliation.
+		if contentID := virtualContentID(item); contentID != "" {
+			keepBySource[source] = appendUniqueString(keepBySource[source], contentID)
+		}
+		updated, _, evaluationErr := s.monitor.evaluate(ctx, item)
+		if evaluationErr != nil {
+			pending++
+			reconcileSafeBySource[source] = false
+			s.monitor.logger.Warn("evaluate virtual media", "key", item.Key, "error", evaluationErr)
+			continue
+		}
 		if updated.Ready {
 			if err := s.monitor.register(ctx, updated); err != nil {
 				pending++
+				reconcileSafeBySource[source] = false
 				s.monitor.logger.Error("register virtual media", "key", updated.Key, "error", err)
 				continue
 			}
@@ -435,7 +519,7 @@ func (s *runtimeServer) Run(ctx context.Context, req *pb.RunScheduledTaskRequest
 				source = "monitor"
 			}
 			if contentID := virtualContentID(updated); contentID != "" {
-				keepBySource[source] = append(keepBySource[source], contentID)
+				keepBySource[source] = appendUniqueString(keepBySource[source], contentID)
 			}
 			if err := s.monitor.remember(updated); err != nil {
 				return nil, err
@@ -451,6 +535,9 @@ func (s *runtimeServer) Run(ctx context.Context, req *pb.RunScheduledTaskRequest
 		Reconcile(context.Context, string, []string) error
 	}); ok {
 		for source, keep := range keepBySource {
+			if !reconcileSafeBySource[source] {
+				continue
+			}
 			if err := reconciler.Reconcile(ctx, source, keep); err != nil {
 				return nil, fmt.Errorf("reconcile virtual source %q: %w", source, err)
 			}
@@ -469,7 +556,7 @@ func (m *mediaMonitor) fetchCinemeta(ctx context.Context, item monitoredMedia) (
 	if err != nil {
 		return item, err
 	}
-	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
+	resp, err := metadataClient.Do(req)
 	if err != nil {
 		return item, err
 	}
@@ -569,7 +656,7 @@ func (m *mediaMonitor) fetchTVMaze(ctx context.Context, item monitoredMedia) (mo
 		return item, errors.New("IMDb, TVDB, or Title required for TVMaze")
 	}
 	lookup.RawQuery = query.Encode()
-	client := &http.Client{Timeout: 20 * time.Second}
+	client := metadataClient
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, lookup.String(), nil)
 	resp, err := client.Do(req)
 	if err != nil {
@@ -680,7 +767,7 @@ func (m *mediaMonitor) movieRelease(ctx context.Context, item monitoredMedia) (t
 	}
 	endpoint := strings.TrimRight(cinemetaBaseURL, "/") + "/meta/movie/" + url.PathEscape(item.IMDbID) + ".json"
 	request, _ := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := metadataClient
 	resp, err := client.Do(request)
 	if err != nil {
 		return time.Time{}, err
@@ -736,7 +823,7 @@ func (m *mediaMonitor) fetchTMDBMovieRuntime(ctx context.Context, item monitored
 		query.Set("api_key", key)
 		req.URL.RawQuery = query.Encode()
 	}
-	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	resp, err := metadataClient.Do(req)
 	if err != nil {
 		return 0, err
 	}
@@ -762,7 +849,7 @@ func fetchTMDBRelease(ctx context.Context, id, key string) (time.Time, error) {
 		q.Set("api_key", key)
 		req.URL.RawQuery = q.Encode()
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := metadataClient.Do(req)
 	if err != nil {
 		return time.Time{}, err
 	}
@@ -810,7 +897,7 @@ func fetchTMDBExternalIDs(ctx context.Context, mediaType, tmdbID, key string) (t
 		q.Set("api_key", key)
 		req.URL.RawQuery = q.Encode()
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := metadataClient.Do(req)
 	if err != nil {
 		return tmdbExternalIDs{}, err
 	}

@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -26,9 +27,16 @@ import (
 )
 
 const (
-	virtualPathPrefix = "virtual://"
-	configKey         = "streaming"
-	maxResponseBytes  = 4 << 20
+	virtualPathPrefix        = "virtual://"
+	configKey                = "streaming"
+	maxResponseBytes         = 4 << 20
+	defaultCacheTTLMinutes   = 10
+	minCacheTTLMinutes       = 1
+	maxCacheTTLMinutes       = 10080
+	maxCandidateCacheEntries = 256
+	maxCandidateCacheBytes   = 16 << 20
+	maxVirtualCandidates     = 50
+	maxManifestResponseBytes = 256 << 10
 )
 
 //go:embed manifest.json
@@ -43,35 +51,59 @@ type candidateLister interface {
 	GetCandidates(context.Context, string) ([]StreamCandidate, string, string, error)
 }
 type resolverConfig struct {
-	ManifestURL   string
-	AllowInsecure bool
-	Quality       QualityConfig
+	ManifestURL     string
+	AllowInsecure   bool
+	Quality         QualityConfig
+	CacheTTLMinutes int
+	TMDBAPIKey      string
 }
 type manifestStreamResolver struct {
-	client *http.Client
-	mu          sync.RWMutex
-	config      resolverConfig
-	cacheMu     sync.Mutex
-	cache       map[string]candidateCacheEntry
+	client          *http.Client
+	mu              sync.RWMutex
+	config          resolverConfig
+	generation      uint64
+	cacheMu         sync.Mutex
+	cache           map[string]candidateCacheEntry
+	cacheGeneration uint64
+	cacheBytes      int64
 }
-
-const candidateCacheTTL = 10 * time.Minute
 
 type candidateCacheEntry struct {
 	candidates []StreamCandidate
 	expiresAt  time.Time
+	lastAccess time.Time
+	sizeBytes  int64
 }
 
 type stremioResponse struct {
 	Streams []StreamCandidate `json:"streams"`
 }
 
+type stremioManifest struct {
+	ID        string            `json:"id"`
+	Resources []json.RawMessage `json:"resources"`
+	Types     []string          `json:"types"`
+}
+
 func (c *manifestStreamResolver) Configure(config resolverConfig) {
+	if config.CacheTTLMinutes == 0 {
+		config.CacheTTLMinutes = defaultCacheTTLMinutes
+	}
+	if config.CacheTTLMinutes < minCacheTTLMinutes {
+		config.CacheTTLMinutes = minCacheTTLMinutes
+	}
+	if config.CacheTTLMinutes > maxCacheTTLMinutes {
+		config.CacheTTLMinutes = maxCacheTTLMinutes
+	}
 	c.mu.Lock()
 	c.config = config
+	c.generation++
+	generation := c.generation
 	c.mu.Unlock()
 	c.cacheMu.Lock()
 	c.cache = nil
+	c.cacheBytes = 0
+	c.cacheGeneration = generation
 	c.cacheMu.Unlock()
 }
 
@@ -88,69 +120,112 @@ func (c *manifestStreamResolver) Resolve(ctx context.Context, virtualPath string
 		return "", errors.New("streaming provider returned no streams")
 	}
 
-	u, _ := url.Parse(virtualPath)
-	requestedProfile := ""
-	if u != nil {
-		requestedProfile = u.Query().Get("profile")
+	selected := c.SelectCandidates(virtualPath, candidates)
+	if len(selected) == 0 {
+		u, _ := url.Parse(virtualPath)
+		if u != nil && strings.TrimSpace(u.Query().Get("profile")) != "" {
+			return "", fmt.Errorf("no stream matches profile %q", u.Query().Get("profile"))
+		}
+		return "", errors.New("no stream matches the requested selection")
 	}
+	return selected[0].URL, nil
+}
 
+// SelectCandidates applies the same quality-profile policy used by Resolve
+// while retaining the complete ranked list for the explicit results=all URI.
+// A normal profile URI deliberately returns only its best match; this keeps
+// one virtual item per configured profile while More Results exposes choices.
+func (c *manifestStreamResolver) SelectCandidates(virtualPath string, candidates []StreamCandidate) []StreamCandidate {
+	u, _ := url.Parse(virtualPath)
+	if u == nil {
+		return cloneCandidates(candidates)
+	}
+	requestedProfile := strings.TrimSpace(u.Query().Get("profile"))
+	resultsAll := strings.EqualFold(strings.TrimSpace(u.Query().Get("results")), "all")
+	requestedResult := strings.TrimSpace(u.Query().Get("result"))
 	c.mu.RLock()
 	config := c.config.Quality
 	c.mu.RUnlock()
 
-	if !config.EnableProfiles || requestedProfile == "" {
-		if requestedResult := u.Query().Get("result"); requestedResult != "" {
-			for _, candidate := range candidates {
-				if candidateVariantID(candidate) == requestedResult {
-					return candidate.URL, nil
-				}
+	var profile QualityProfile
+	if requestedProfile != "" && config.EnableProfiles {
+		profile = profileByLabel(config.Profiles, requestedProfile)
+		profileFound := false
+		for _, configured := range config.Profiles {
+			if strings.EqualFold(configured.Label, requestedProfile) {
+				profileFound = true
+				break
 			}
 		}
-		return candidates[0].URL, nil
+		if !profileFound {
+			if !config.FallbackToAnyStream {
+				return nil
+			}
+			requestedProfile = ""
+		}
 	}
-	if requestedResult := u.Query().Get("result"); requestedResult != "" {
+	if requestedProfile != "" && config.EnableProfiles {
+		matched := make([]StreamCandidate, 0, len(candidates))
 		for _, candidate := range candidates {
-			if candidateVariantID(candidate) == requestedResult && matchProfile(candidate, profileByLabel(config.Profiles, requestedProfile)) {
-				return candidate.URL, nil
-			}
-		}
-	}
-
-	var matchProfileObj QualityProfile
-	found := false
-	for _, p := range config.Profiles {
-		if strings.EqualFold(p.Label, requestedProfile) {
-			matchProfileObj = p
-			found = true
-			break
-		}
-	}
-
-	if found {
-		var matched []StreamCandidate
-		for _, cand := range candidates {
-			if matchProfile(cand, matchProfileObj) {
-				matched = append(matched, cand)
+			if matchProfile(candidate, profile) {
+				matched = append(matched, candidate)
 			}
 		}
 		if len(matched) > 0 {
-			sortCandidatesForProfile(matched, matchProfileObj)
-			return matched[0].URL, nil
+			sortCandidatesForProfile(matched, profile)
+			if requestedResult != "" {
+				for _, candidate := range matched {
+					if candidateVariantID(candidate) == requestedResult {
+						return []StreamCandidate{candidate}
+					}
+				}
+				return nil
+			}
+			if !resultsAll {
+				matched = matched[:1]
+			}
+			return matched
+		}
+		if !config.FallbackToAnyStream {
+			return nil
 		}
 	}
 
-	if config.FallbackToAnyStream {
-		return candidates[0].URL, nil
+	ranked := cloneCandidates(candidates)
+	sortCandidatesForProfile(ranked, QualityProfile{})
+	if requestedResult != "" {
+		for _, candidate := range ranked {
+			if candidateVariantID(candidate) == requestedResult {
+				return []StreamCandidate{candidate}
+			}
+		}
+		return nil
 	}
-
-	return "", fmt.Errorf("no stream matches profile %q", requestedProfile)
+	if !resultsAll && len(ranked) > 1 {
+		ranked = ranked[:1]
+	}
+	return ranked
 }
 
 func (c *manifestStreamResolver) GetCandidates(ctx context.Context, virtualPath string) ([]StreamCandidate, string, string, error) {
+	return c.getCandidates(ctx, virtualPath, false)
+}
+
+// GetCandidatesFresh bypasses the bounded candidate cache for an explicit
+// user refresh/retry while retaining the normal cache behavior by default.
+func (c *manifestStreamResolver) GetCandidatesFresh(ctx context.Context, virtualPath string) ([]StreamCandidate, string, string, error) {
+	return c.getCandidates(ctx, virtualPath, true)
+}
+
+func (c *manifestStreamResolver) getCandidates(ctx context.Context, virtualPath string, forceRefresh bool) ([]StreamCandidate, string, string, error) {
 	mediaType, mediaID, err := parseVirtualPath(virtualPath)
 	if err != nil {
 		return nil, mediaType, mediaID, err
 	}
+	c.mu.RLock()
+	config := c.config
+	generation := c.generation
+	c.mu.RUnlock()
 
 	// strip query from mediaID
 	if idx := strings.Index(mediaID, "?"); idx != -1 {
@@ -165,20 +240,26 @@ func (c *manifestStreamResolver) GetCandidates(ctx context.Context, virtualPath 
 			return nil, mediaType, mediaID, err
 		}
 	}
+	if strings.HasPrefix(strings.ToLower(mediaID), "tmdb:") {
+		mediaID, err = c.normalizeTMDBProviderID(ctx, mediaType, mediaID, config.TMDBAPIKey)
+		if err != nil {
+			return nil, mediaType, mediaID, err
+		}
+	}
 	cacheKey := mediaType + "|" + mediaID
 	c.cacheMu.Lock()
-	if entry, ok := c.cache[cacheKey]; ok && time.Now().Before(entry.expiresAt) {
-		candidates := cloneCandidates(entry.candidates)
-		c.cacheMu.Unlock()
-		return candidates, mediaType, mediaID, nil
+	if !forceRefresh && c.cacheGeneration == generation {
+		if entry, ok := c.cache[cacheKey]; ok && time.Now().Before(entry.expiresAt) {
+			candidates := cloneCandidates(entry.candidates)
+			entry.lastAccess = time.Now()
+			c.cache[cacheKey] = entry
+			c.cacheMu.Unlock()
+			return candidates, mediaType, mediaID, nil
+		}
 	}
 	c.cacheMu.Unlock()
 
-	c.mu.RLock()
-	manifestURL := c.config.ManifestURL
-	allowInsecure := c.config.AllowInsecure
-	c.mu.RUnlock()
-	endpoint, err := streamEndpointWithPolicy(manifestURL, mediaType, mediaID, allowInsecure)
+	endpoint, err := streamEndpointWithPolicy(config.ManifestURL, mediaType, mediaID, config.AllowInsecure)
 	if err != nil {
 		return nil, mediaType, mediaID, err
 	}
@@ -186,9 +267,13 @@ func (c *manifestStreamResolver) GetCandidates(ctx context.Context, virtualPath 
 	if err != nil {
 		return nil, mediaType, mediaID, fmt.Errorf("create streaming provider request: %w", err)
 	}
-	resp, err := c.client.Do(req)
+	client := c.client
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
 	if err != nil {
-		return nil, mediaType, mediaID, fmt.Errorf("request streaming provider: %w", err)
+		return nil, mediaType, mediaID, errors.New("request streaming provider failed")
 	}
 	defer resp.Body.Close()
 	var validCandidates []StreamCandidate
@@ -196,7 +281,7 @@ func (c *manifestStreamResolver) GetCandidates(ctx context.Context, virtualPath 
 		return validCandidates, mediaType, mediaID, fmt.Errorf("streaming provider returned status %d", resp.StatusCode)
 	}
 	var payload stremioResponse
-	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(&payload); err != nil {
+	if err := decodeBoundedJSON(resp.Body, maxResponseBytes, &payload); err != nil {
 		return validCandidates, mediaType, mediaID, fmt.Errorf("decode streaming provider response: %w", err)
 	}
 	for i, stream := range payload.Streams {
@@ -206,15 +291,249 @@ func (c *manifestStreamResolver) GetCandidates(ctx context.Context, virtualPath 
 			parseStreamDetails(&stream)
 			parseStreamMetadata(&stream)
 			validCandidates = append(validCandidates, stream)
+			if len(validCandidates) >= maxVirtualCandidates {
+				break
+			}
 		}
 	}
+	if len(validCandidates) > maxVirtualCandidates {
+		validCandidates = validCandidates[:maxVirtualCandidates]
+	}
+	ttlMinutes := config.CacheTTLMinutes
+	if ttlMinutes == 0 {
+		ttlMinutes = defaultCacheTTLMinutes
+	}
+	now := time.Now()
+	c.storeCandidateCache(cacheKey, validCandidates, now.Add(time.Duration(ttlMinutes)*time.Minute), now, generation)
+	return validCandidates, mediaType, mediaID, nil
+}
+
+func candidateCacheSize(candidates []StreamCandidate) int64 {
+	var size int64
+	for _, candidate := range candidates {
+		size += 256
+		for _, value := range []string{
+			candidate.URL, candidate.Name, candidate.Title, candidate.Description,
+			candidate.Resolution, candidate.CodecVideo, candidate.CodecAudio,
+			candidate.HDR, candidate.SourceType, candidate.Container, candidate.BehaviorHints.VideoHash,
+		} {
+			size += int64(len(value))
+		}
+		for _, language := range candidate.AudioLanguages {
+			size += int64(len(language))
+		}
+		for _, language := range candidate.SubtitleLanguages {
+			size += int64(len(language))
+		}
+	}
+	return size
+}
+
+func (c *manifestStreamResolver) storeCandidateCache(key string, candidates []StreamCandidate, expiresAt, now time.Time, generation uint64) {
+	size := candidateCacheSize(candidates)
+	if size > maxCandidateCacheBytes {
+		return
+	}
 	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+	if c.cacheGeneration != generation {
+		return
+	}
 	if c.cache == nil {
 		c.cache = make(map[string]candidateCacheEntry)
 	}
-	c.cache[cacheKey] = candidateCacheEntry{candidates: cloneCandidates(validCandidates), expiresAt: time.Now().Add(candidateCacheTTL)}
-	c.cacheMu.Unlock()
-	return validCandidates, mediaType, mediaID, nil
+	if previous, exists := c.cache[key]; exists {
+		c.cacheBytes -= previous.sizeBytes
+		delete(c.cache, key)
+	}
+	for candidateKey, entry := range c.cache {
+		if !now.Before(entry.expiresAt) {
+			c.cacheBytes -= entry.sizeBytes
+			delete(c.cache, candidateKey)
+		}
+	}
+	for len(c.cache) >= maxCandidateCacheEntries || c.cacheBytes+size > maxCandidateCacheBytes {
+		oldestKey := ""
+		var oldest time.Time
+		for candidateKey, entry := range c.cache {
+			if oldestKey == "" || entry.lastAccess.Before(oldest) {
+				oldestKey, oldest = candidateKey, entry.lastAccess
+			}
+		}
+		if oldestKey == "" {
+			break
+		}
+		c.cacheBytes -= c.cache[oldestKey].sizeBytes
+		delete(c.cache, oldestKey)
+	}
+	c.cache[key] = candidateCacheEntry{
+		candidates: cloneCandidates(candidates),
+		expiresAt:  expiresAt,
+		lastAccess: now,
+		sizeBytes:  size,
+	}
+	c.cacheBytes += size
+}
+
+func (c *manifestStreamResolver) normalizeTMDBProviderID(ctx context.Context, mediaType, mediaID, apiKey string) (string, error) {
+	parts := strings.Split(mediaID, ":")
+	if len(parts) < 2 || !strings.EqualFold(parts[0], "tmdb") {
+		return mediaID, nil
+	}
+	key := strings.TrimSpace(apiKey)
+	if key == "" {
+		return "", errors.New("TMDB ID requires a configured TMDB API token to resolve IMDb playback ID")
+	}
+	externals, err := fetchTMDBExternalIDs(ctx, mediaType, parts[1], key)
+	if err != nil || strings.TrimSpace(externals.IMDbID) == "" {
+		return "", fmt.Errorf("TMDB ID %s has no IMDb playback ID", parts[1])
+	}
+	if len(parts) > 2 {
+		return externals.IMDbID + ":" + strings.Join(parts[2:], ":"), nil
+	}
+	return externals.IMDbID, nil
+}
+
+func (c *manifestStreamResolver) cacheTTLSeconds() int64 {
+	c.mu.RLock()
+	minutes := c.config.CacheTTLMinutes
+	c.mu.RUnlock()
+	if minutes == 0 {
+		minutes = defaultCacheTTLMinutes
+	}
+	return int64(minutes * 60)
+}
+
+func parseCacheTTLMinutes(value any) (int, error) {
+	if value == nil {
+		return defaultCacheTTLMinutes, nil
+	}
+	var minutes int
+	switch v := value.(type) {
+	case float64:
+		minutes = int(v)
+		if v != float64(minutes) {
+			return 0, errors.New("cache_ttl_minutes must be an integer")
+		}
+	case int:
+		minutes = v
+	case int32:
+		minutes = int(v)
+	case int64:
+		minutes = int(v)
+	case string:
+		parsed, err := strconv.Atoi(strings.TrimSpace(v))
+		if err != nil {
+			return 0, errors.New("cache_ttl_minutes must be an integer")
+		}
+		minutes = parsed
+	default:
+		return 0, errors.New("cache_ttl_minutes must be an integer")
+	}
+	if minutes < minCacheTTLMinutes || minutes > maxCacheTTLMinutes {
+		return 0, fmt.Errorf("cache_ttl_minutes must be between %d and %d", minCacheTTLMinutes, maxCacheTTLMinutes)
+	}
+	return minutes, nil
+}
+
+func (c *manifestStreamResolver) ValidateConnection(ctx context.Context) error {
+	c.mu.RLock()
+	manifestURL := c.config.ManifestURL
+	allowInsecure := c.config.AllowInsecure
+	c.mu.RUnlock()
+	if _, err := streamEndpointWithPolicy(manifestURL, "movie", "tt0000001", allowInsecure); err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, manifestURL, nil)
+	if err != nil {
+		return fmt.Errorf("create manifest validation request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	client := c.client
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return errors.New("request streaming provider manifest failed")
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("streaming provider manifest returned status %d", resp.StatusCode)
+	}
+	var manifest stremioManifest
+	if err := decodeBoundedJSON(resp.Body, maxManifestResponseBytes, &manifest); err != nil {
+		return fmt.Errorf("decode streaming provider manifest: %w", err)
+	}
+	return validateStremioManifest(manifest)
+}
+
+func validateStremioManifest(manifest stremioManifest) error {
+	if strings.TrimSpace(manifest.ID) == "" {
+		return errors.New("streaming provider manifest is missing id")
+	}
+	hasStreamResource := false
+	for _, raw := range manifest.Resources {
+		var name string
+		if err := json.Unmarshal(raw, &name); err != nil {
+			var descriptor struct {
+				Name string `json:"name"`
+			}
+			if err := json.Unmarshal(raw, &descriptor); err == nil {
+				name = descriptor.Name
+			}
+		}
+		if strings.EqualFold(strings.TrimSpace(name), "stream") {
+			hasStreamResource = true
+			break
+		}
+	}
+	if !hasStreamResource {
+		return errors.New("streaming provider manifest does not advertise the stream resource")
+	}
+	for _, mediaType := range manifest.Types {
+		if strings.EqualFold(strings.TrimSpace(mediaType), "movie") || strings.EqualFold(strings.TrimSpace(mediaType), "series") {
+			return nil
+		}
+	}
+	return errors.New("streaming provider manifest does not advertise movie or series support")
+}
+
+func decodeBoundedJSON(body io.Reader, limit int64, destination any) error {
+	data, err := io.ReadAll(io.LimitReader(body, limit+1))
+	if err != nil {
+		return err
+	}
+	if int64(len(data)) > limit {
+		return fmt.Errorf("response exceeds %d bytes", limit)
+	}
+	return json.Unmarshal(data, destination)
+}
+
+func newProviderHTTPClient() *http.Client {
+	return newRestrictedRedirectHTTPClient(45 * time.Second)
+}
+
+func newRestrictedRedirectHTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout: timeout,
+		CheckRedirect: func(request *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return errors.New("too many redirects")
+			}
+			if len(via) == 0 {
+				return nil
+			}
+			origin := via[0].URL
+			target := request.URL
+			if target.User != nil ||
+				!strings.EqualFold(origin.Scheme, target.Scheme) ||
+				!strings.EqualFold(origin.Host, target.Host) {
+				return errors.New("cross-origin redirects are not allowed")
+			}
+			return nil
+		},
+	}
 }
 
 func (c *manifestStreamResolver) normalizeSeriesProviderID(ctx context.Context, mediaID string) (string, error) {
@@ -275,8 +594,26 @@ func profileByLabel(profiles []QualityProfile, label string) QualityProfile {
 }
 
 func candidateVariantID(candidate StreamCandidate) string {
-	digest := sha256.Sum256([]byte(candidate.URL))
-	return hex.EncodeToString(digest[:6])
+	// Provider URLs are temporary and commonly rotate credentials/query tokens.
+	// Hash only stable, provider-visible fields so result= handles survive a
+	// refresh and provider reordering. Providers that expose a stable video hash
+	// contribute it to the identity; otherwise stable display and URL-path fields
+	// distinguish candidates.
+	urlIdentity := ""
+	if parsed, err := url.Parse(strings.TrimSpace(candidate.URL)); err == nil {
+		urlIdentity = strings.ToLower(parsed.Scheme) + "://" + strings.ToLower(parsed.Host) + parsed.EscapedPath()
+	}
+	fingerprint := strings.Join([]string{
+		strings.TrimSpace(candidate.Name), strings.TrimSpace(candidate.Title),
+		strings.TrimSpace(candidate.Description), strconv.FormatInt(candidate.FileSize, 10),
+		strings.TrimSpace(candidate.Resolution), strings.TrimSpace(candidate.CodecVideo),
+		strings.TrimSpace(candidate.CodecAudio), strings.TrimSpace(candidate.HDR),
+		strings.TrimSpace(candidate.SourceType), strings.TrimSpace(candidate.Container),
+		strings.Join(candidate.AudioLanguages, ","), strings.Join(candidate.SubtitleLanguages, ","),
+		strings.TrimSpace(candidate.BehaviorHints.VideoHash), urlIdentity,
+	}, "\x00")
+	digest := sha256.Sum256([]byte(fingerprint))
+	return hex.EncodeToString(digest[:12])
 }
 
 func candidateDisplayName(candidate StreamCandidate) string {
@@ -318,6 +655,11 @@ func (c *manifestStreamResolver) GetConfiguredVariants(virtualPath string) []run
 				HDR:        profile.HDR,
 			})
 		}
+	} else {
+		variants = append(variants, runtimehost.VirtualMediaVariant{
+			VirtualURI: virtualPath,
+			Label:      "Default",
+		})
 	}
 	// This is an explicit just-in-time action. It is not a provider URL and
 	// resolves to the best candidate while Silo persists the complete response
@@ -396,6 +738,7 @@ type runtimeServer struct {
 	runtimedefault.Server
 	pb.UnimplementedRequestRouterServer
 	pb.UnimplementedScheduledTaskServer
+	configMu sync.Mutex
 	manifest *pb.PluginManifest
 	resolver *manifestStreamResolver
 	monitor  *mediaMonitor
@@ -406,13 +749,20 @@ func (s *runtimeServer) GetManifest(context.Context, *pb.GetManifestRequest) (*p
 	return &pb.GetManifestResponse{Manifest: s.manifest}, nil
 }
 func (s *runtimeServer) Configure(_ context.Context, request *pb.ConfigureRequest) (*pb.ConfigureResponse, error) {
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
 	for _, entry := range request.GetConfig() {
 		if entry.GetKey() != configKey {
 			continue
 		}
 		values := entry.GetValue().AsMap()
 		manifestURL, _ := values["manifest_url"].(string)
+		tmdbAPIKey, _ := values["tmdb_api_key"].(string)
 		allowInsecure, _ := values["allow_insecure_http"].(bool)
+		cacheTTLMinutes, err := parseCacheTTLMinutes(values["cache_ttl_minutes"])
+		if err != nil {
+			return nil, err
+		}
 		if _, err := streamEndpointWithPolicy(manifestURL, "movie", "tt0000001", allowInsecure); err != nil {
 			return nil, err
 		}
@@ -430,8 +780,6 @@ func (s *runtimeServer) Configure(_ context.Context, request *pb.ConfigureReques
 			return nil, fmt.Errorf("invalid quality config: %w", err)
 		}
 
-		s.resolver.Configure(resolverConfig{ManifestURL: manifestURL, AllowInsecure: allowInsecure, Quality: qc})
-		tmdbAPIKey, _ := entry.GetValue().AsMap()["tmdb_api_key"].(string)
 		monitorFile, _ := entry.GetValue().AsMap()["monitor_file"].(string)
 		movieLibraryID, err := configuredFolderID(entry.GetValue().AsMap()["movie_library_id"])
 		if err != nil {
@@ -441,84 +789,22 @@ func (s *runtimeServer) Configure(_ context.Context, request *pb.ConfigureReques
 		if err != nil {
 			return nil, err
 		}
+		stagedMonitorConfig, monitoredItems, err := loadMonitorConfig(monitorConfig{TMDBAPIKey: strings.TrimSpace(tmdbAPIKey), File: strings.TrimSpace(monitorFile)})
+		if err != nil {
+			return nil, err
+		}
 		library, err := newSiloLibrary(sdkruntime.Host(), movieLibraryID, seriesLibraryID, s.resolver)
 		if err != nil {
 			return nil, err
 		}
+		// Every fallible validation step completes before any live component is
+		// changed, so a rejected configuration cannot leave mixed old/new state.
+		s.resolver.Configure(resolverConfig{ManifestURL: manifestURL, AllowInsecure: allowInsecure, Quality: qc, CacheTTLMinutes: cacheTTLMinutes, TMDBAPIKey: strings.TrimSpace(tmdbAPIKey)})
 		s.library = library
-		s.monitor.setRegistrar(library)
-		s.monitor.Configure(monitorConfig{TMDBAPIKey: strings.TrimSpace(tmdbAPIKey), File: strings.TrimSpace(monitorFile)})
+		s.monitor.applyConfiguration(stagedMonitorConfig, monitoredItems, library, true)
 		return &pb.ConfigureResponse{}, nil
 	}
 	return nil, fmt.Errorf("required %q configuration is missing", configKey)
-}
-
-type playbackServer struct {
-	pb.UnimplementedHttpRoutesServer
-	resolver streamResolver
-}
-
-func (s *playbackServer) Handle(ctx context.Context, request *pb.HandleHTTPRequest) (*pb.HandleHTTPResponse, error) {
-	if request == nil {
-		return jsonResponse(http.StatusNotFound, map[string]string{"error": "path is not handled by virtual playback"})
-	}
-	path := request.GetPath()
-	if strings.HasPrefix(path, "/resolve/") {
-		path = strings.TrimPrefix(path, "/resolve/")
-	}
-	if strings.HasPrefix(request.GetPath(), "/profiles/") {
-		path = strings.TrimPrefix(request.GetPath(), "/profiles/")
-		if !strings.HasPrefix(path, virtualPathPrefix) {
-			return jsonResponse(http.StatusNotFound, map[string]string{"error": "path is not handled by virtual profiles"})
-		}
-		configured := configuredVariants(s.resolver, path)
-		variants := make([]map[string]any, 0, len(configured))
-		for _, v := range configured {
-			variants = append(variants, map[string]any{"virtual_uri": v.VirtualURI, "label": v.Label, "resolution": v.Resolution, "codec_video": v.CodecVideo, "codec_audio": v.CodecAudio, "hdr": v.HDR})
-		}
-		return jsonResponse(http.StatusOK, map[string]any{"variants": variants})
-	}
-	if !strings.HasPrefix(path, virtualPathPrefix) {
-		return jsonResponse(http.StatusNotFound, map[string]string{"error": "path is not handled by virtual playback"})
-	}
-	if strings.EqualFold(request.GetHeaders()["X-Silo-List-Streams"], "true") {
-		lister, ok := s.resolver.(candidateLister)
-		if !ok {
-			return jsonResponse(http.StatusNotImplemented, map[string]string{"error": "stream listing is not supported"})
-		}
-		candidates, _, _, err := lister.GetCandidates(ctx, path)
-		if err != nil {
-			return jsonResponse(http.StatusBadGateway, map[string]string{"error": err.Error()})
-		}
-		streams := make([]map[string]any, 0, len(candidates))
-		resultSeparator := "?"
-		if strings.Contains(path, "?") {
-			resultSeparator = "&"
-		}
-		for _, candidate := range candidates {
-			id := candidateVariantID(candidate)
-			streams = append(streams, map[string]any{
-				"id": id, "label": candidateDisplayName(candidate),
-				"uri":        path + resultSeparator + "result=" + url.QueryEscape(id),
-				"resolution": candidate.Resolution, "codec_video": candidate.CodecVideo,
-				"codec_audio": candidate.CodecAudio, "hdr": candidate.HDR,
-				"source_type": candidate.SourceType, "file_size": candidate.FileSize,
-			})
-		}
-		return jsonResponse(http.StatusOK, map[string]any{"streams": streams})
-	}
-	streamURL, err := s.resolver.Resolve(ctx, path)
-	if err != nil {
-		return jsonResponse(http.StatusBadGateway, map[string]string{"error": err.Error()})
-	}
-	return jsonResponse(http.StatusOK, map[string]string{"stream_url": streamURL})
-}
-func jsonResponse(status int, payload any) (*pb.HandleHTTPResponse, error) {
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return nil, err
-	}
-	return &pb.HandleHTTPResponse{StatusCode: int32(status), Headers: map[string]string{"content-type": "application/json"}, Body: body}, nil
 }
 
 func main() {
@@ -527,12 +813,12 @@ func main() {
 		fmt.Fprintf(os.Stderr, "load manifest: %v\n", err)
 		os.Exit(1)
 	}
-	resolver := &manifestStreamResolver{client: &http.Client{Timeout: 45 * time.Second}}
+	resolver := &manifestStreamResolver{client: newProviderHTTPClient()}
 	monitor := newMediaMonitor(resolver, hclog.New(&hclog.LoggerOptions{Name: "silo-virtual-library-monitor"}))
 	runtime := &runtimeServer{manifest: manifest, resolver: resolver, monitor: monitor}
 	sdkruntime.Serve(sdkruntime.ServeConfig{
 		Logger:  hclog.New(&hclog.LoggerOptions{Name: "silo-virtual-library"}),
-		Servers: sdkruntime.CapabilityServers{Runtime: runtime, HttpRoutes: &playbackServer{resolver: resolver}, VirtualStreamProvider: &virtualStreamProvider{resolver: resolver}, RequestRouter: runtime, ScheduledTask: runtime},
+		Servers: sdkruntime.CapabilityServers{Runtime: runtime, VirtualStreamProvider: &virtualStreamProvider{resolver: resolver}, RequestRouter: runtime, ScheduledTask: runtime},
 	})
 }
 func loadManifest() (*pb.PluginManifest, error) {

@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 
 	pb "github.com/Silo-Server/silo-plugin-sdk/pkg/pluginproto/silo/plugin/v1"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 const virtualStreamProviderID = "com.drondeseries.silo-virtual-library"
@@ -15,15 +17,59 @@ const virtualStreamProviderID = "com.drondeseries.silo-virtual-library"
 // persisted in the catalog.
 type virtualStreamProvider struct{ resolver *manifestStreamResolver }
 
+func (s *virtualStreamProvider) ListVirtualStreamProfiles(_ context.Context, req *pb.ListVirtualStreamProfilesRequest) (*pb.ListVirtualStreamProfilesResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("profile request is required")
+	}
+	mediaType := strings.ToLower(strings.TrimSpace(req.GetMediaType()))
+	if mediaType == "episode" {
+		mediaType = "series"
+	}
+	if mediaType != "movie" && mediaType != "series" {
+		return nil, fmt.Errorf("unsupported media type %q", mediaType)
+	}
+	configured := s.resolver.GetConfiguredVariants("virtual://" + mediaType + "/tt0")
+	response := &pb.ListVirtualStreamProfilesResponse{}
+	for _, variant := range configured {
+		parsed, err := url.Parse(variant.VirtualURI)
+		if err != nil {
+			continue
+		}
+		response.Profiles = append(response.Profiles, &pb.VirtualStreamProfile{
+			Label: variant.Label, Resolution: variant.Resolution,
+			VideoCodec: variant.CodecVideo, AudioCodec: variant.CodecAudio,
+			HdrFormat:  variant.HDR,
+			AllResults: strings.EqualFold(parsed.Query().Get("results"), "all"),
+		})
+	}
+	return response, nil
+}
+
 func (s *virtualStreamProvider) ResolveVirtualStream(ctx context.Context, req *pb.ResolveVirtualStreamRequest) (*pb.ResolveVirtualStreamResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("resolve request is required")
 	}
-	path, err := virtualPathForRequest(req)
+	path, err := virtualPathForResolveRequest(req)
 	if err != nil {
 		return nil, err
 	}
-	candidates, _, _, err := s.resolver.GetCandidates(ctx, path)
+	forceRefresh := false
+	if metadata := req.GetMetadata(); metadata != nil {
+		if value, ok := metadata.AsMap()["force_refresh"]; ok {
+			switch typed := value.(type) {
+			case bool:
+				forceRefresh = typed
+			case string:
+				forceRefresh = strings.EqualFold(strings.TrimSpace(typed), "true")
+			}
+		}
+	}
+	var candidates []StreamCandidate
+	if forceRefresh {
+		candidates, _, _, err = s.resolver.GetCandidatesFresh(ctx, path)
+	} else {
+		candidates, _, _, err = s.resolver.GetCandidates(ctx, path)
+	}
 	if err != nil {
 		return &pb.ResolveVirtualStreamResponse{Result: &pb.VirtualStreamResult{
 			ProviderId:   virtualStreamProviderID,
@@ -31,8 +77,24 @@ func (s *virtualStreamProvider) ResolveVirtualStream(ctx context.Context, req *p
 			Error:        &pb.VirtualStreamError{Code: pb.VirtualStreamErrorCode_VIRTUAL_STREAM_ERROR_CODE_PROVIDER_FAILURE, Message: err.Error(), Retryable: true},
 		}}, nil
 	}
-	result := &pb.VirtualStreamResult{ResultId: path, ProviderId: virtualStreamProviderID, Availability: &pb.VirtualStreamAvailability{State: pb.VirtualStreamAvailabilityState_VIRTUAL_STREAM_AVAILABILITY_STATE_AVAILABLE}}
+	candidates = s.resolver.SelectCandidates(path, candidates)
+	resultMetadata, metadataErr := structpb.NewStruct(map[string]any{"cache_ttl_seconds": float64(s.resolver.cacheTTLSeconds())})
+	if metadataErr != nil {
+		return nil, fmt.Errorf("build stream result metadata: %w", metadataErr)
+	}
+	result := &pb.VirtualStreamResult{ResultId: path, ProviderId: virtualStreamProviderID, Metadata: resultMetadata, Availability: &pb.VirtualStreamAvailability{State: pb.VirtualStreamAvailabilityState_VIRTUAL_STREAM_AVAILABILITY_STATE_AVAILABLE}}
 	for rank, candidate := range candidates {
+		candidateMetadata := map[string]any{}
+		if displayName := candidateDisplayName(candidate); displayName != "" {
+			candidateMetadata["display_name"] = displayName
+		}
+		if sourceType := strings.TrimSpace(candidate.SourceType); sourceType != "" {
+			candidateMetadata["source_type"] = sourceType
+		}
+		metadata, metadataErr := structpb.NewStruct(candidateMetadata)
+		if metadataErr != nil {
+			return nil, fmt.Errorf("build candidate metadata: %w", metadataErr)
+		}
 		result.Candidates = append(result.Candidates, &pb.VirtualStreamCandidate{
 			CandidateId: candidateVariantID(candidate), ProviderId: virtualStreamProviderID, TemporaryUri: candidate.URL,
 			Rank: int32(rank + 1), Resolution: &pb.VirtualStreamResolution{Label: candidate.Resolution},
@@ -40,6 +102,7 @@ func (s *virtualStreamProvider) ResolveVirtualStream(ctx context.Context, req *p
 			Hdr:           &pb.VirtualStreamHDR{IsHdr: candidate.HDR != "", Format: candidate.HDR, HasDolbyVision: strings.EqualFold(candidate.HDR, "dv")},
 			FileSizeBytes: candidate.FileSize, Container: candidate.Container,
 			AudioLanguages: candidate.AudioLanguages, SubtitleLanguages: candidate.SubtitleLanguages,
+			Metadata:     metadata,
 			Availability: &pb.VirtualStreamAvailability{State: pb.VirtualStreamAvailabilityState_VIRTUAL_STREAM_AVAILABILITY_STATE_AVAILABLE},
 		})
 	}
@@ -48,6 +111,41 @@ func (s *virtualStreamProvider) ResolveVirtualStream(ctx context.Context, req *p
 		result.Error = &pb.VirtualStreamError{Code: pb.VirtualStreamErrorCode_VIRTUAL_STREAM_ERROR_CODE_NOT_FOUND, Message: "provider returned no streams", Retryable: true}
 	}
 	return &pb.ResolveVirtualStreamResponse{Result: result}, nil
+}
+
+// virtualPathForResolveRequest preserves playback selection metadata while
+// binding it to the request's media identity. This prevents a caller from
+// resolving an unrelated virtual URI by changing only metadata.
+func virtualPathForResolveRequest(req *pb.ResolveVirtualStreamRequest) (string, error) {
+	canonical, err := virtualPathForRequest(req)
+	if err != nil {
+		return "", err
+	}
+	metadata := req.GetMetadata()
+	if metadata == nil {
+		return canonical, nil
+	}
+	raw, present := metadata.AsMap()["virtual_uri"]
+	if !present {
+		return canonical, nil
+	}
+	uri, ok := raw.(string)
+	if !ok || strings.TrimSpace(uri) == "" {
+		return "", fmt.Errorf("metadata virtual_uri must be a non-empty string")
+	}
+	uri = strings.TrimSpace(uri)
+	mediaType, mediaID, err := parseVirtualPath(uri)
+	if err != nil {
+		return "", fmt.Errorf("invalid metadata virtual_uri: %w", err)
+	}
+	expectedType, expectedID, err := parseVirtualPath(canonical)
+	if err != nil {
+		return "", err
+	}
+	if mediaType != expectedType || !strings.EqualFold(mediaID, expectedID) {
+		return "", fmt.Errorf("metadata virtual_uri does not match requested media")
+	}
+	return uri, nil
 }
 
 func virtualPathForRequest(req *pb.ResolveVirtualStreamRequest) (string, error) {

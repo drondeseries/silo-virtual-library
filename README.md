@@ -31,6 +31,8 @@ Items that are upcoming or theatrical-only are persisted in the configured monit
 
 Registration and collection sync never contact the streaming provider. When the user presses Play, the plugin makes one stream request for that movie or episode, caches the complete response briefly, and Silo exposes the matching profile plus additional results without repeating the provider request. Future episodes of an ongoing series are added on schedule without prewarming.
 
+Provider candidates are cached for 10 minutes by default. Set **Candidate Cache TTL (minutes)** from 1 to 10080 (seven days) to tune freshness versus provider load. A playback request can explicitly set `force_refresh` to bypass this cache; no provider URLs or credentials are persisted.
+
 Movie runtimes come from TMDB movie details when configured, with Cinemeta as fallback. Episode runtimes come from Cinemeta or TVMaze. Silo stores the canonical runtime before playback so growing HLS playlists do not make the seek bar expand second by second.
 
 When an item becomes playable, the plugin submits a typed virtual-media registration to Silo's authenticated RuntimeHost service. Silo validates the selected library and transactionally owns all catalog, episode, virtual-file, cache-invalidation, and metadata-refresh behavior. The plugin never receives database credentials, executes SQL, or creates `.strm` files.

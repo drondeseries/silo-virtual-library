@@ -3,14 +3,23 @@
     {
       "manifest": {
         "plugin_id": "com.drondeseries.silo-virtual-library",
-        "version": "0.4.27",
+        "version": "0.4.29",
         "silo_api_version": "v1",
         "capabilities": [
           {
-            "type": "http_routes.v1",
-            "id": "virtual-playback",
-            "display_name": "Virtual Playback",
-            "description": "Resolves virtual:// virtual paths into short-lived streaming URLs."
+            "type": "virtual_stream_provider.v1",
+            "id": "stremio-stream-resolver",
+            "display_name": "Virtual Stream Provider",
+            "description": "Resolves provider-neutral virtual media into ranked, temporary stream candidates.",
+            "virtual_stream_provider": {
+              "supported_media_types": [
+                "movie",
+                "series",
+                "episode"
+              ],
+              "supports_just_in_time_resolution": true,
+              "supports_multiple_candidates": true
+            }
           },
           {
             "type": "request_router.v1",
@@ -72,7 +81,7 @@
             "key": "streaming",
             "title": "streaming provider",
             "description": "Connection to the configured streaming provider Stremio addon.",
-            "json_schema": "{\"type\":\"object\",\"properties\":{\"manifest_url\":{\"type\":\"string\",\"format\":\"uri\"},\"movie_library_id\":{\"type\":\"integer\",\"minimum\":1},\"series_library_id\":{\"type\":\"integer\",\"minimum\":1},\"tmdb_api_key\":{\"type\":\"string\"},\"monitor_file\":{\"type\":\"string\",\"default\":\".silo-virtual-library-monitored.json\"},\"allow_insecure_http\":{\"type\":\"boolean\",\"default\":false},\"enable_quality_profiles\":{\"type\":\"boolean\",\"default\":false},\"quality_profiles\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"label\":{\"type\":\"string\"},\"resolution\":{\"type\":\"string\"},\"include_regex\":{\"type\":\"string\"},\"exclude_regex\":{\"type\":\"string\"},\"preferred_order\":{\"type\":\"integer\"},\"codec_video\":{\"type\":\"string\"},\"codec_audio\":{\"type\":\"string\"},\"hdr\":{\"type\":\"string\"}},\"required\":[\"label\"]}},\"selection_mode\":{\"type\":\"string\",\"enum\":[\"max_versions\",\"picker\"],\"default\":\"max_versions\"},\"fallback_to_any_stream\":{\"type\":\"boolean\",\"default\":false}},\"required\":[\"manifest_url\",\"movie_library_id\",\"series_library_id\"],\"additionalProperties\":false}",
+            "json_schema": "{\"type\":\"object\",\"properties\":{\"manifest_url\":{\"type\":\"string\",\"format\":\"uri\",\"maxLength\":4096},\"movie_library_id\":{\"type\":\"integer\",\"minimum\":1},\"series_library_id\":{\"type\":\"integer\",\"minimum\":1},\"tmdb_api_key\":{\"type\":\"string\",\"maxLength\":4096},\"monitor_file\":{\"type\":\"string\",\"maxLength\":4096,\"default\":\".silo-virtual-library-monitored.json\"},\"allow_insecure_http\":{\"type\":\"boolean\",\"default\":false},\"cache_ttl_minutes\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":10080,\"default\":10},\"enable_quality_profiles\":{\"type\":\"boolean\",\"default\":false},\"quality_profiles\":{\"type\":\"array\",\"maxItems\":10,\"items\":{\"type\":\"object\",\"properties\":{\"label\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":128},\"resolution\":{\"type\":\"string\",\"maxLength\":64},\"include_regex\":{\"type\":\"string\",\"maxLength\":1024},\"exclude_regex\":{\"type\":\"string\",\"maxLength\":1024},\"preferred_order\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":10000},\"codec_video\":{\"type\":\"string\",\"maxLength\":64},\"codec_audio\":{\"type\":\"string\",\"maxLength\":64},\"hdr\":{\"type\":\"string\",\"maxLength\":64}},\"required\":[\"label\"],\"additionalProperties\":false}},\"fallback_to_any_stream\":{\"type\":\"boolean\",\"default\":false}},\"required\":[\"manifest_url\",\"movie_library_id\",\"series_library_id\"],\"additionalProperties\":false}",
             "required": true,
             "admin_form": {
               "fields": [
@@ -95,7 +104,7 @@
                   "label": "Manifest URL",
                   "description": "The complete tokenized streaming provider URL ending in /manifest.json.",
                   "control": 3,
-                  "placeholder": "https://…/manifest.json",
+                  "placeholder": "https://\u2026/manifest.json",
                   "required": true,
                   "secret": true
                 },
@@ -111,6 +120,13 @@
                   "label": "Allow local HTTP",
                   "description": "Allow plain HTTP only for localhost, .local, single-label Docker/service names, or private IPs. HTTPS remains the default.",
                   "control": 5
+                },
+                {
+                  "key": "cache_ttl_minutes",
+                  "label": "Candidate Cache TTL (minutes)",
+                  "description": "How long provider stream candidates are cached (1–10080 minutes).",
+                  "control": 4,
+                  "placeholder": "10"
                 },
                 {
                   "key": "monitor_file",
@@ -145,19 +161,19 @@
         ]
       },
       "repo_url": "https://github.com/drondeseries/silo-virtual-library",
-      "checksums_url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.27/checksums.txt",
+      "checksums_url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.29/checksums.txt",
       "binaries": {
         "linux/amd64": {
-          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.27/plugin-linux-amd64",
-          "checksum": "4f83c5c9bb62de0f043e896ee53bba05accb7fd639754247e72ce1b6eb3a8473"
+          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.29/plugin-linux-amd64",
+          "checksum": "725f918c7389358fa228024ea89012331fb661b5c3eccbc4575ac2452da91eaa"
         },
         "linux/arm64": {
-          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.27/plugin-linux-arm64",
-          "checksum": "481085f47d879c8994be524082a1ed58025058a4cbaaef7c7a12f1e776f810da"
+          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.29/plugin-linux-arm64",
+          "checksum": "5d8f9eeaaff0ab5c82ce20716886b6aa948dd1cc7eaf80a2fc4b59de193480ce"
         },
         "darwin/arm64": {
-          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.27/plugin-darwin-arm64",
-          "checksum": "72aa48b1fab8d9f911a255a2261970eb7c252c55a449ea1a83b060d8cdba5c31"
+          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.29/plugin-darwin-arm64",
+          "checksum": "14720b5ffe72d0d931cc3f442e9b394ec27f7b13079705bef00b09cdc323eed2"
         }
       }
     }

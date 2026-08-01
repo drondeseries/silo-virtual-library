@@ -61,13 +61,14 @@ func (l *siloLibrary) Register(ctx context.Context, item monitoredMedia) error {
 	if item.MediaFolderID > 0 {
 		libraryID = item.MediaFolderID
 	}
-	virtualURI := virtualPathPrefix + item.MediaType + "/" + strings.ReplaceAll(item.StreamID, ":", "/")
+	canonicalStreamID := strings.ReplaceAll(item.StreamID, ":", "/")
+	virtualURI := virtualPathPrefix + item.MediaType + "/" + canonicalStreamID
 	episodes := make([]runtimehost.VirtualEpisode, 0, len(item.Episodes))
 	for _, episode := range item.Episodes {
 		if episode.Season <= 0 || episode.Episode <= 0 {
 			continue
 		}
-		virtualEpURI := fmt.Sprintf("%sseries/%s/%d/%d", virtualPathPrefix, item.StreamID, episode.Season, episode.Episode)
+		virtualEpURI := fmt.Sprintf("%sseries/%s/%d/%d", virtualPathPrefix, canonicalStreamID, episode.Season, episode.Episode)
 		episodes = append(episodes, runtimehost.VirtualEpisode{
 			SeasonNumber: episode.Season, EpisodeNumber: episode.Episode, Title: episode.Title, Overview: episode.Overview,
 			AirDate: episode.Released, RuntimeMinutes: episode.Runtime, StillPath: episode.Thumbnail,

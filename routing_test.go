@@ -2,11 +2,17 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	pb "github.com/Silo-Server/silo-plugin-sdk/pkg/pluginproto/silo/plugin/v1"
 	"github.com/hashicorp/go-hclog"
@@ -180,6 +186,144 @@ func TestParseRuntimeMinutes(t *testing.T) {
 		if got := parseRuntimeMinutes(input); got != want {
 			t.Errorf("parseRuntimeMinutes(%q) = %d, want %d", input, got, want)
 		}
+	}
+}
+
+func TestMediaMonitorConfigureRejectsInvalidStateWithoutReplacingCurrentState(t *testing.T) {
+	dir := t.TempDir()
+	validPath := filepath.Join(dir, "valid.json")
+	monitor := newMediaMonitor(nil, hclog.NewNullLogger())
+	if err := monitor.Configure(monitorConfig{File: validPath}); err != nil {
+		t.Fatal(err)
+	}
+	item := monitoredMedia{Key: "movie:tt1", MediaType: "movie", StreamID: "tt1"}
+	if err := monitor.remember(item); err != nil {
+		t.Fatal(err)
+	}
+
+	badPath := filepath.Join(dir, "bad.json")
+	if err := os.WriteFile(badPath, []byte(`[{"Key":"movie:tt2","MediaType":"movie"},{"Key":"movie:tt2","MediaType":"movie"}]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := monitor.Configure(monitorConfig{File: badPath}); err == nil || !strings.Contains(err.Error(), "duplicate key") {
+		t.Fatalf("Configure() error = %v, want duplicate key", err)
+	}
+	if got, ok := monitor.item(item.Key); !ok || got.StreamID != "tt1" {
+		t.Fatalf("valid monitor state replaced after failed configure: %#v, %v", got, ok)
+	}
+}
+
+func TestMediaMonitorRememberRollsBackWhenPersistenceFails(t *testing.T) {
+	monitor := newMediaMonitor(nil, hclog.NewNullLogger())
+	if err := monitor.Configure(monitorConfig{File: filepath.Join(t.TempDir(), "missing", "queue.json")}); err != nil {
+		t.Fatal(err)
+	}
+	item := monitoredMedia{Key: "movie:tt1", MediaType: "movie"}
+	if err := monitor.remember(item); err == nil {
+		t.Fatal("remember succeeded with an unavailable persistence directory")
+	}
+	if _, ok := monitor.item(item.Key); ok {
+		t.Fatal("failed remember left an in-memory item behind")
+	}
+}
+
+func TestMediaMonitorConfigureRejectsTooManyItems(t *testing.T) {
+	items := make([]monitoredMedia, maxMonitoredItems+1)
+	for i := range items {
+		items[i] = monitoredMedia{Key: fmt.Sprintf("movie:tt%d", i), MediaType: "movie"}
+	}
+	data, err := json.Marshal(items)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "queue.json")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	monitor := newMediaMonitor(nil, hclog.NewNullLogger())
+	if err := monitor.Configure(monitorConfig{File: path}); err == nil || !strings.Contains(err.Error(), "items") {
+		t.Fatalf("Configure() error = %v, want item limit", err)
+	}
+}
+
+type recordingReconciler struct {
+	registerCalls  int
+	reconcileCalls int
+	registerErr    error
+}
+
+func (r *recordingReconciler) Register(context.Context, monitoredMedia) error {
+	r.registerCalls++
+	return r.registerErr
+}
+
+func TestScheduledMonitorSkipsReconcileOnRegistrationFailure(t *testing.T) {
+	previousClient := metadataClient
+	metadataClient = &http.Client{Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		body := `{"meta":{"name":"Example","videos":[{"id":"tt1234567:1:1","title":"Pilot","season":1,"episode":1,"released":"2020-01-01T00:00:00.000Z"}]}}`
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+	})}
+	t.Cleanup(func() { metadataClient = previousClient })
+
+	monitor := newMediaMonitor(nil, hclog.NewNullLogger())
+	if err := monitor.Configure(monitorConfig{File: filepath.Join(t.TempDir(), "queue.json")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := monitor.remember(monitoredMedia{
+		Key: "series:tt1234567", MediaType: "series", StreamID: "tt1234567", IMDbID: "tt1234567",
+		SourceKey: "request:series:tt1234567",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	registrar := &recordingReconciler{registerErr: errors.New("host unavailable")}
+	monitor.setRegistrar(registrar)
+	server := &runtimeServer{monitor: monitor}
+	if _, err := server.Run(context.Background(), &pb.RunScheduledTaskRequest{TaskKey: "monitor-media"}); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if registrar.registerCalls != 1 {
+		t.Fatalf("register calls = %d, want 1", registrar.registerCalls)
+	}
+	if registrar.reconcileCalls != 0 {
+		t.Fatalf("reconcile calls = %d, want 0 after failed registration", registrar.reconcileCalls)
+	}
+}
+
+func (r *recordingReconciler) Reconcile(context.Context, string, []string) error {
+	r.reconcileCalls++
+	return nil
+}
+
+func TestScheduledMonitorSkipsRegistrationAndReconcileOnMetadataFailure(t *testing.T) {
+	previousClient := metadataClient
+	metadataClient = &http.Client{Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("metadata provider unavailable")
+	})}
+	t.Cleanup(func() { metadataClient = previousClient })
+
+	monitor := newMediaMonitor(nil, hclog.NewNullLogger())
+	if err := monitor.Configure(monitorConfig{File: filepath.Join(t.TempDir(), "queue.json")}); err != nil {
+		t.Fatal(err)
+	}
+	item := monitoredMedia{
+		Key: "series:tt1234567", MediaType: "series", StreamID: "tt1234567", IMDbID: "tt1234567",
+		SourceKey: "request:series:tt1234567", Ready: true,
+		Episodes: []virtualEpisode{{Season: 1, Episode: 1, Title: "Pilot", Released: time.Now().Add(-time.Hour)}},
+	}
+	if err := monitor.remember(item); err != nil {
+		t.Fatal(err)
+	}
+	registrar := &recordingReconciler{}
+	monitor.setRegistrar(registrar)
+	server := &runtimeServer{monitor: monitor}
+	if _, err := server.Run(context.Background(), &pb.RunScheduledTaskRequest{TaskKey: "monitor-media"}); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if registrar.registerCalls != 0 {
+		t.Fatalf("register calls = %d, want 0 after failed evaluation", registrar.registerCalls)
+	}
+	if registrar.reconcileCalls != 0 {
+		t.Fatalf("reconcile calls = %d, want 0 after failed evaluation", registrar.reconcileCalls)
 	}
 }
 

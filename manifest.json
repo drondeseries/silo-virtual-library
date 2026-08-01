@@ -1,36 +1,20 @@
 {
   "plugin_id": "com.drondeseries.silo-virtual-library",
-  "version": "0.4.26",
+  "version": "0.4.29",
   "checksum": "__CHECKSUM__",
   "silo_api_version": "v1",
-  "http_routes": [
-    {
-      "id": "resolve-stream",
-      "method": "GET",
-      "path": "/resolve/*",
-      "access": "public"
-    },
-    {
-      "id": "configured-profiles",
-      "method": "GET",
-      "path": "/profiles/*",
-      "access": "public"
-    }
-  ],
   "capabilities": [
-    {
-      "type": "http_routes.v1",
-      "id": "virtual-playback",
-      "display_name": "Virtual Playback",
-      "description": "Resolves virtual:// virtual paths into short-lived streaming URLs."
-    },
     {
       "type": "virtual_stream_provider.v1",
       "id": "stremio-stream-resolver",
       "display_name": "Virtual Stream Provider",
       "description": "Resolves provider-neutral virtual media into ranked, temporary stream candidates.",
-      "metadata": {
-        "supported_media_types": ["movie", "series", "episode"],
+      "virtual_stream_provider": {
+        "supported_media_types": [
+          "movie",
+          "series",
+          "episode"
+        ],
         "supports_just_in_time_resolution": true,
         "supports_multiple_candidates": true
       }
@@ -46,7 +30,15 @@
           "api_key": "plugin-managed"
         }
       },
-      "config_schema": [{"key":"connection","json_schema":"{\"type\":\"object\",\"properties\":{}}","admin_form":{"fields":[]}}]
+      "config_schema": [
+        {
+          "key": "connection",
+          "json_schema": "{\"type\":\"object\",\"properties\":{}}",
+          "admin_form": {
+            "fields": []
+          }
+        }
+      ]
     },
     {
       "type": "scheduled_task.v1",
@@ -87,18 +79,30 @@
       "key": "streaming",
       "title": "streaming provider",
       "description": "Connection to the configured streaming provider Stremio addon.",
-      "json_schema": "{\"type\":\"object\",\"properties\":{\"manifest_url\":{\"type\":\"string\",\"format\":\"uri\"},\"movie_library_id\":{\"type\":\"integer\",\"minimum\":1},\"series_library_id\":{\"type\":\"integer\",\"minimum\":1},\"tmdb_api_key\":{\"type\":\"string\"},\"monitor_file\":{\"type\":\"string\",\"default\":\".silo-virtual-library-monitored.json\"},\"allow_insecure_http\":{\"type\":\"boolean\",\"default\":false},\"enable_quality_profiles\":{\"type\":\"boolean\",\"default\":false},\"quality_profiles\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"label\":{\"type\":\"string\"},\"resolution\":{\"type\":\"string\"},\"include_regex\":{\"type\":\"string\"},\"exclude_regex\":{\"type\":\"string\"},\"preferred_order\":{\"type\":\"integer\"},\"codec_video\":{\"type\":\"string\"},\"codec_audio\":{\"type\":\"string\"},\"hdr\":{\"type\":\"string\"}},\"required\":[\"label\"]}},\"selection_mode\":{\"type\":\"string\",\"enum\":[\"max_versions\",\"picker\"],\"default\":\"max_versions\"},\"fallback_to_any_stream\":{\"type\":\"boolean\",\"default\":false}},\"required\":[\"manifest_url\",\"movie_library_id\",\"series_library_id\"],\"additionalProperties\":false}",
+      "json_schema": "{\"type\":\"object\",\"properties\":{\"manifest_url\":{\"type\":\"string\",\"format\":\"uri\",\"maxLength\":4096},\"movie_library_id\":{\"type\":\"integer\",\"minimum\":1},\"series_library_id\":{\"type\":\"integer\",\"minimum\":1},\"tmdb_api_key\":{\"type\":\"string\",\"maxLength\":4096},\"monitor_file\":{\"type\":\"string\",\"maxLength\":4096,\"default\":\".silo-virtual-library-monitored.json\"},\"allow_insecure_http\":{\"type\":\"boolean\",\"default\":false},\"cache_ttl_minutes\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":10080,\"default\":10},\"enable_quality_profiles\":{\"type\":\"boolean\",\"default\":false},\"quality_profiles\":{\"type\":\"array\",\"maxItems\":10,\"items\":{\"type\":\"object\",\"properties\":{\"label\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":128},\"resolution\":{\"type\":\"string\",\"maxLength\":64},\"include_regex\":{\"type\":\"string\",\"maxLength\":1024},\"exclude_regex\":{\"type\":\"string\",\"maxLength\":1024},\"preferred_order\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":10000},\"codec_video\":{\"type\":\"string\",\"maxLength\":64},\"codec_audio\":{\"type\":\"string\",\"maxLength\":64},\"hdr\":{\"type\":\"string\",\"maxLength\":64}},\"required\":[\"label\"],\"additionalProperties\":false}},\"fallback_to_any_stream\":{\"type\":\"boolean\",\"default\":false}},\"required\":[\"manifest_url\",\"movie_library_id\",\"series_library_id\"],\"additionalProperties\":false}",
       "required": true,
       "admin_form": {
         "fields": [
-		  {"key":"movie_library_id","label":"Movies Library ID","description":"Destination Silo Movies library.","control":"ADMIN_FORM_CONTROL_NUMBER","required":true},
-		  {"key":"series_library_id","label":"Series Library ID","description":"Destination Silo Series library.","control":"ADMIN_FORM_CONTROL_NUMBER","required":true},
+          {
+            "key": "movie_library_id",
+            "label": "Movies Library ID",
+            "description": "Destination Silo Movies library.",
+            "control": "ADMIN_FORM_CONTROL_NUMBER",
+            "required": true
+          },
+          {
+            "key": "series_library_id",
+            "label": "Series Library ID",
+            "description": "Destination Silo Series library.",
+            "control": "ADMIN_FORM_CONTROL_NUMBER",
+            "required": true
+          },
           {
             "key": "manifest_url",
             "label": "Manifest URL",
             "description": "The complete tokenized streaming provider URL ending in /manifest.json.",
             "control": "ADMIN_FORM_CONTROL_PASSWORD",
-            "placeholder": "https://…/manifest.json",
+            "placeholder": "https://\u2026/manifest.json",
             "required": true,
             "secret": true
           },
@@ -114,6 +118,13 @@
             "label": "Allow local HTTP",
             "description": "Allow plain HTTP only for localhost, .local, single-label Docker/service names, or private IPs. HTTPS remains the default.",
             "control": "ADMIN_FORM_CONTROL_SWITCH"
+          },
+          {
+            "key": "cache_ttl_minutes",
+            "label": "Candidate Cache TTL (minutes)",
+            "description": "How long provider stream candidates are cached (1–10080 minutes).",
+            "control": "ADMIN_FORM_CONTROL_NUMBER",
+            "placeholder": "10"
           },
           {
             "key": "monitor_file",

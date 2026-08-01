@@ -25,6 +25,15 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: "1.26"
+      - name: Validate release metadata
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          MANIFEST_VERSION="$(jq -er '.version' manifest.json)"
+          CATALOG_VERSION="$(jq -er '.plugins[0].manifest.version' catalog.json)"
+          test "$VERSION" = "$MANIFEST_VERSION"
+          test "$VERSION" = "$CATALOG_VERSION"
+          jq -e '.capabilities[] | select(.type == "virtual_stream_provider.v1") | .virtual_stream_provider.supported_media_types | length > 0' manifest.json >/dev/null
+          jq -e '.plugins[0].manifest.capabilities[] | select(.type == "virtual_stream_provider.v1") | .virtual_stream_provider.supported_media_types | length > 0' catalog.json >/dev/null
       - name: Test
         run: go test ./...
       - name: Build plugin
@@ -94,4 +103,3 @@ jobs:
           git add catalog.json
           git commit -m "chore(catalog): auto-update catalog.json for release ${TAG}" || exit 0
           git push origin main
-

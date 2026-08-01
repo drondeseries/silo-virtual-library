@@ -9,6 +9,16 @@ import (
 
 var streamSizePattern = regexp.MustCompile(`(?i)\b\d+(?:\.\d+)?\s*(?:TB|GB|MB)\b`)
 var languagePattern = regexp.MustCompile(`(?i)\b(?:eng|en|fra|fre|fr|deu|ger|de|ita|es|spa|jpn|kor|zho|chi|por|rus|ara|multi)\b`)
+var (
+	dolbyVisionPattern = regexp.MustCompile(`(?i)(?:\bdolby[ ._-]*vision\b|\bdv\b)`)
+	atmosPattern       = regexp.MustCompile(`(?i)\batmos\b`)
+	trueHDPattern      = regexp.MustCompile(`(?i)(?:\btrue[ ._-]*hd\b|\bthd\b)`)
+	dtsHDPattern       = regexp.MustCompile(`(?i)\bdts[ ._-]*hd\b`)
+	dtsPattern         = regexp.MustCompile(`(?i)\bdts\b`)
+	eac3Pattern        = regexp.MustCompile(`(?i)(?:\be[ ._-]*ac[ ._-]*3\b|\bdd\+)`)
+	ac3Pattern         = regexp.MustCompile(`(?i)(?:\bac[ ._-]*3\b|\bdd\b)`)
+	aacPattern         = regexp.MustCompile(`(?i)\baac\b`)
+)
 
 type StreamCandidate struct {
 	URL           string
@@ -62,19 +72,19 @@ func parseStreamDetails(s *StreamCandidate) {
 	}
 
 	// Codec Audio
-	if strings.Contains(fullText, "atmos") {
+	if atmosPattern.MatchString(fullText) {
 		s.CodecAudio = "atmos"
-	} else if strings.Contains(fullText, "truehd") || strings.Contains(fullText, "thd") {
+	} else if trueHDPattern.MatchString(fullText) {
 		s.CodecAudio = "truehd"
-	} else if strings.Contains(fullText, "dts-hd") || strings.Contains(fullText, "dtshd") {
+	} else if dtsHDPattern.MatchString(fullText) {
 		s.CodecAudio = "dts-hd"
-	} else if strings.Contains(fullText, "dts") {
+	} else if dtsPattern.MatchString(fullText) {
 		s.CodecAudio = "dts"
-	} else if strings.Contains(fullText, "eac3") || strings.Contains(fullText, "dd+") {
+	} else if eac3Pattern.MatchString(fullText) {
 		s.CodecAudio = "eac3"
-	} else if strings.Contains(fullText, "ac3") || strings.Contains(fullText, "dd") {
+	} else if ac3Pattern.MatchString(fullText) {
 		s.CodecAudio = "ac3"
-	} else if strings.Contains(fullText, "aac") {
+	} else if aacPattern.MatchString(fullText) {
 		s.CodecAudio = "aac"
 	}
 
@@ -83,7 +93,7 @@ func parseStreamDetails(s *StreamCandidate) {
 		s.HDR = "hdr10+"
 	} else if strings.Contains(fullText, "hdr10") {
 		s.HDR = "hdr10"
-	} else if strings.Contains(fullText, "dolby vision") || strings.Contains(fullText, "dv") {
+	} else if dolbyVisionPattern.MatchString(fullText) {
 		s.HDR = "dv"
 	} else if strings.Contains(fullText, "hdr") {
 		s.HDR = "hdr"
