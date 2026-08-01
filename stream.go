@@ -26,7 +26,9 @@ type StreamCandidate struct {
 	Description   string
 	Title         string
 	BehaviorHints struct {
-		VideoHash string `json:"videoHash"`
+		VideoHash  string `json:"videoHash"`
+		Filename   string `json:"filename"`
+		BingeGroup string `json:"bingeGroup"`
 	}
 
 	Resolution        string
@@ -52,13 +54,17 @@ func parseStreamDetails(s *StreamCandidate) {
 	if !hasResolutionMarker(resolutionText) {
 		resolutionText = fullText
 	}
-	if strings.Contains(resolutionText, "2160p") || strings.Contains(resolutionText, "4k") {
+	if strings.Contains(resolutionText, "2160p") || strings.Contains(resolutionText, "4k") || strings.Contains(resolutionText, "uhd") {
 		s.Resolution = "2160p"
-	} else if strings.Contains(resolutionText, "1080p") {
+	} else if strings.Contains(resolutionText, "1080p") || strings.Contains(resolutionText, "1080i") {
 		s.Resolution = "1080p"
 	} else if strings.Contains(resolutionText, "720p") {
 		s.Resolution = "720p"
 	} else if strings.Contains(resolutionText, "480p") || strings.Contains(resolutionText, "sd") {
+		s.Resolution = "480p"
+	} else if strings.Contains(resolutionText, "bluray") || strings.Contains(resolutionText, "bdrip") || strings.Contains(resolutionText, "brrip") || strings.Contains(resolutionText, "remux") {
+		s.Resolution = "1080p"
+	} else if strings.Contains(resolutionText, "dvdrip") || strings.Contains(resolutionText, "dvd") {
 		s.Resolution = "480p"
 	}
 

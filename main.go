@@ -13,10 +13,12 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	pb "github.com/Silo-Server/silo-plugin-sdk/pkg/pluginproto/silo/plugin/v1"
 	publicmanifest "github.com/Silo-Server/silo-plugin-sdk/pkg/pluginsdk/manifest"
@@ -227,6 +229,9 @@ func (c *manifestStreamResolver) getCandidates(ctx context.Context, virtualPath 
 	generation := c.generation
 	c.mu.RUnlock()
 
+	if strings.Contains(virtualPath, "refresh=1") || strings.Contains(virtualPath, "force=1") {
+		forceRefresh = true
+	}
 	// strip query from mediaID
 	if idx := strings.Index(mediaID, "?"); idx != -1 {
 		mediaID = mediaID[:idx]
@@ -601,16 +606,23 @@ func candidateVariantID(candidate StreamCandidate) string {
 	// distinguish candidates.
 	urlIdentity := ""
 	if parsed, err := url.Parse(strings.TrimSpace(candidate.URL)); err == nil {
-		urlIdentity = strings.ToLower(parsed.Scheme) + "://" + strings.ToLower(parsed.Host) + parsed.EscapedPath()
+		filename := strings.TrimSpace(candidate.BehaviorHints.Filename)
+		if filename == "" {
+			filename = path.Base(parsed.Path)
+		}
+		urlIdentity = strings.ToLower(parsed.Scheme) + "://" + strings.ToLower(parsed.Host) + "/" + strings.ToLower(filename)
 	}
 	fingerprint := strings.Join([]string{
 		strings.TrimSpace(candidate.Name), strings.TrimSpace(candidate.Title),
-		strings.TrimSpace(candidate.Description), strconv.FormatInt(candidate.FileSize, 10),
+		strconv.FormatInt(candidate.FileSize, 10),
 		strings.TrimSpace(candidate.Resolution), strings.TrimSpace(candidate.CodecVideo),
 		strings.TrimSpace(candidate.CodecAudio), strings.TrimSpace(candidate.HDR),
 		strings.TrimSpace(candidate.SourceType), strings.TrimSpace(candidate.Container),
 		strings.Join(candidate.AudioLanguages, ","), strings.Join(candidate.SubtitleLanguages, ","),
-		strings.TrimSpace(candidate.BehaviorHints.VideoHash), urlIdentity,
+		strings.TrimSpace(candidate.BehaviorHints.VideoHash),
+		strings.TrimSpace(candidate.BehaviorHints.Filename),
+		strings.TrimSpace(candidate.BehaviorHints.BingeGroup),
+		urlIdentity,
 	}, "\x00")
 	digest := sha256.Sum256([]byte(fingerprint))
 	return hex.EncodeToString(digest[:12])
@@ -627,7 +639,13 @@ func candidateDisplayName(candidate StreamCandidate) string {
 	if size := streamSize(candidate); size != "" && !strings.Contains(strings.ToLower(name), strings.ToLower(size)) {
 		name += " · " + size
 	}
-	return name
+	clean := strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+			return -1
+		}
+		return r
+	}, name)
+	return strings.TrimSpace(clean)
 }
 
 // GetConfiguredVariants exposes profile-specific virtual URIs without querying
@@ -832,15 +850,14 @@ func loadManifest() (*pb.PluginManifest, error) {
 	if err != nil {
 		return nil, err
 	}
-	executable, err := os.Executable()
-	if err != nil {
-		return nil, fmt.Errorf("locate executable: %w", err)
+	if manifest.Checksum == "" {
+		executable, err := os.Executable()
+		if err == nil {
+			if binary, err := os.ReadFile(executable); err == nil {
+				checksum := sha256.Sum256(binary)
+				manifest.Checksum = hex.EncodeToString(checksum[:])
+			}
+		}
 	}
-	binary, err := os.ReadFile(executable)
-	if err != nil {
-		return nil, fmt.Errorf("read executable: %w", err)
-	}
-	checksum := sha256.Sum256(binary)
-	manifest.Checksum = hex.EncodeToString(checksum[:])
 	return manifest, nil
 }
