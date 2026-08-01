@@ -52,7 +52,7 @@ func validateLibraryIDs(host *runtimehost.Client, movieID, seriesID int) error {
 		return fmt.Errorf("validate library configuration: list host libraries: %w", err)
 	}
 	if len(libs) == 0 {
-		return errors.New(`No libraries found. Create a Movies and a Series library at Settings → Libraries first. Each library needs a folder path — point them at empty placeholder directories (e.g. /data/silo/movies and /data/silo/series). The plugin registers virtual media into these libraries without needing real files on disk.`)
+		return errors.New(`No libraries found. Create a Movies and a Series library at Settings → Libraries first. Use the "Add Virtual" button on the Folders tab instead of a real filesystem path — virtual:// paths tell Silo these libraries contain only virtual media without needing local storage.`)
 	}
 	moviesOK, seriesOK := false, false
 	for _, lib := range libs {
@@ -67,10 +67,10 @@ func validateLibraryIDs(host *runtimehost.Client, movieID, seriesID int) error {
 		}
 	}
 	if !moviesOK {
-		return fmt.Errorf("A Movies library with ID %d was not found on the host. Create one at Settings → Libraries first.", movieID)
+		return fmt.Errorf("A Movies library with ID %d was not found on the host. Create one at Settings → Libraries — use the \"Add Virtual\" button on the Folders tab so no local storage is needed.", movieID)
 	}
 	if !seriesOK {
-		return fmt.Errorf("A Series library with ID %d was not found on the host. Create one at Settings → Libraries first.", seriesID)
+		return fmt.Errorf("A Series library with ID %d was not found on the host. Create one at Settings → Libraries — use the \"Add Virtual\" button on the Folders tab so no local storage is needed.", seriesID)
 	}
 	return nil
 }
