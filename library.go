@@ -40,6 +40,41 @@ func newSiloLibrary(host *runtimehost.Client, movieLibraryID, seriesLibraryID in
 	return &siloLibrary{host: host, movieLibraryID: movieLibraryID, seriesLibraryID: seriesLibraryID, resolver: resolver}, nil
 }
 
+// validateLibraryIDs ensures the configured library IDs refer to real libraries
+// on the Silo host.  On a fresh server the user must create libraries at
+// Settings → Libraries before the virtual library plugin can register media.
+func validateLibraryIDs(host *runtimehost.Client, movieID, seriesID int) error {
+	if host == nil {
+		return nil // skip validation when the host is unavailable (e.g. early Configure)
+	}
+	libs, err := host.ListLibraries(context.Background(), "")
+	if err != nil {
+		return fmt.Errorf("validate library configuration: list host libraries: %w", err)
+	}
+	if len(libs) == 0 {
+		return errors.New(`No libraries found. Create a Movies and a Series library at Settings → Libraries first. Each library needs a folder path — point them at empty placeholder directories (e.g. /data/silo/movies and /data/silo/series). The plugin registers virtual media into these libraries without needing real files on disk.`)
+	}
+	moviesOK, seriesOK := false, false
+	for _, lib := range libs {
+		if lib == nil {
+			continue
+		}
+		if lib.GetId() == strconv.Itoa(movieID) && (lib.GetMediaType() == "movie" || lib.GetMediaType() == "mixed") {
+			moviesOK = true
+		}
+		if lib.GetId() == strconv.Itoa(seriesID) && (lib.GetMediaType() == "tv" || lib.GetMediaType() == "mixed") {
+			seriesOK = true
+		}
+	}
+	if !moviesOK {
+		return fmt.Errorf("A Movies library with ID %d was not found on the host. Create one at Settings → Libraries first.", movieID)
+	}
+	if !seriesOK {
+		return fmt.Errorf("A Series library with ID %d was not found on the host. Create one at Settings → Libraries first.", seriesID)
+	}
+	return nil
+}
+
 func configuredFolderID(value any) (int, error) {
 	switch v := value.(type) {
 	case float64:
@@ -56,7 +91,12 @@ func configuredFolderID(value any) (int, error) {
 	return 0, errors.New("library ID must be a positive integer")
 }
 
-func canonicalVirtualURI(mediaType, streamID string) string {
+// movieVirtualURI returns the canonical virtual:// URI for a movie stream.
+// Series playback sources belong to their episode rows; the Silo host rejects
+// a series-level VirtualURI because there is no playable file at the container
+// itself. Callers must guard on media type and attach per-episode URIs for
+// series.
+func movieVirtualURI(mediaType, streamID string) string {
 	if mediaType != "movie" {
 		return ""
 	}
@@ -76,7 +116,7 @@ func (l *siloLibrary) Register(ctx context.Context, item monitoredMedia) error {
 	// file at the series container itself. Keep the canonical URI only for
 	// movies and attach episode URIs below.
 	canonicalStreamID := strings.ReplaceAll(item.StreamID, ":", "/")
-	virtualURI := canonicalVirtualURI(item.MediaType, item.StreamID)
+	virtualURI := movieVirtualURI(item.MediaType, item.StreamID)
 	episodes := make([]runtimehost.VirtualEpisode, 0, len(item.Episodes))
 	for _, episode := range item.Episodes {
 		if episode.Season <= 0 || episode.Episode <= 0 {

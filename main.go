@@ -789,6 +789,12 @@ func (s *runtimeServer) Configure(_ context.Context, request *pb.ConfigureReques
 		if err != nil {
 			return nil, err
 		}
+		// On a fresh server the host has no libraries yet.  The user must
+		// create at least one Movie and one Series library before this plugin
+		// can register virtual media into them.
+		if err := validateLibraryIDs(sdkruntime.Host(), movieLibraryID, seriesLibraryID); err != nil {
+			return nil, err
+		}
 		stagedMonitorConfig, monitoredItems, err := loadMonitorConfig(monitorConfig{TMDBAPIKey: strings.TrimSpace(tmdbAPIKey), File: strings.TrimSpace(monitorFile)})
 		if err != nil {
 			return nil, err

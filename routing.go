@@ -19,6 +19,7 @@ import (
 	"time"
 
 	pb "github.com/Silo-Server/silo-plugin-sdk/pkg/pluginproto/silo/plugin/v1"
+	sdkruntime "github.com/Silo-Server/silo-plugin-sdk/pkg/pluginsdk/runtime"
 	"github.com/hashicorp/go-hclog"
 	"google.golang.org/protobuf/types/known/structpb"
 )
@@ -444,21 +445,39 @@ func (s *runtimeServer) CheckStatus(ctx context.Context, req *pb.CheckStatusRequ
 	}
 	return &pb.CheckStatusResponse{Statuses: statuses}, nil
 }
-func (s *runtimeServer) ListConfigOptions(context.Context, *pb.ListConfigOptionsRequest) (*pb.ListConfigOptionsResponse, error) {
-	return &pb.ListConfigOptionsResponse{
-		OptionsByField: map[string]*pb.ConfigOptionList{
-			"movie_library_id": {
-				Options: []*pb.ConfigOption{
-					{Value: "1", Label: "Movies (Default)"},
-				},
-			},
-			"series_library_id": {
-				Options: []*pb.ConfigOption{
-					{Value: "2", Label: "Series (Default)"},
-				},
-			},
-		},
-	}, nil
+func (s *runtimeServer) ListConfigOptions(ctx context.Context, _ *pb.ListConfigOptionsRequest) (*pb.ListConfigOptionsResponse, error) {
+	host := sdkruntime.Host()
+	if host == nil {
+		return &pb.ListConfigOptionsResponse{}, nil
+	}
+	libs, err := host.ListLibraries(ctx, "")
+	if err != nil {
+		return &pb.ListConfigOptionsResponse{}, fmt.Errorf("list host libraries for config options: %w", err)
+	}
+	movies := make([]*pb.ConfigOption, 0)
+	series := make([]*pb.ConfigOption, 0)
+	for _, lib := range libs {
+		if lib == nil {
+			continue
+		}
+		switch lib.GetMediaType() {
+		case "movie":
+			movies = append(movies, &pb.ConfigOption{Value: lib.GetId(), Label: lib.GetName()})
+		case "tv":
+			series = append(series, &pb.ConfigOption{Value: lib.GetId(), Label: lib.GetName()})
+		case "mixed":
+			movies = append(movies, &pb.ConfigOption{Value: lib.GetId(), Label: lib.GetName()})
+			series = append(series, &pb.ConfigOption{Value: lib.GetId(), Label: lib.GetName()})
+		}
+	}
+	optionsByField := map[string]*pb.ConfigOptionList{}
+	if len(movies) > 0 {
+		optionsByField["movie_library_id"] = &pb.ConfigOptionList{Options: movies}
+	}
+	if len(series) > 0 {
+		optionsByField["series_library_id"] = &pb.ConfigOptionList{Options: series}
+	}
+	return &pb.ListConfigOptionsResponse{OptionsByField: optionsByField}, nil
 }
 func (s *runtimeServer) Validate(context.Context, *pb.ValidateRequest) (*pb.ValidateResponse, error) {
 	return &pb.ValidateResponse{FieldErrors: map[string]string{}}, nil
