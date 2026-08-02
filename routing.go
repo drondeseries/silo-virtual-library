@@ -382,12 +382,17 @@ func (s *runtimeServer) Fulfill(ctx context.Context, req *pb.FulfillRequest) (re
 		}
 		item.MediaFolderID = folderID
 	}
-	// If media is available but still has no title (Silo did not include one in
-	// the request and metadata lookup hasn't resolved it yet), keep it queued so
-	// the scheduled monitor can retry once metadata arrives.
-	if item.Ready && strings.TrimSpace(item.Title) == "" {
+	// If media is available but still has no title or is a series with no
+	// episodes (Silo did not include episodes in the request descriptor and
+	// metadata lookup hasn't resolved them yet), keep it queued so the
+	// scheduled monitor can retry once episode metadata arrives.
+	if item.Ready && (strings.TrimSpace(item.Title) == "" || (item.MediaType == "series" && len(item.Episodes) == 0)) {
 		item.Ready = false
-		message = "Queued; waiting for metadata before registering"
+		if item.MediaType == "series" && len(item.Episodes) == 0 {
+			message = "Queued; waiting for episode metadata"
+		} else {
+			message = "Queued; waiting for metadata before registering"
+		}
 	}
 	if item.Ready {
 		if err := s.monitor.register(ctx, item); err != nil {
@@ -425,11 +430,15 @@ func (s *runtimeServer) CheckStatus(ctx context.Context, req *pb.CheckStatusRequ
 			item = base
 		}
 		item, message, _ := s.monitor.evaluate(ctx, item)
-		// If media is available but still has no title (metadata not yet resolved),
-		// keep it queued rather than failing the RPC with an SDK validation error.
-		if item.Ready && strings.TrimSpace(item.Title) == "" {
+		// If media is available but still has no title or is a series with no
+		// episodes, keep it queued rather than failing the RPC with an SDK validation error.
+		if item.Ready && (strings.TrimSpace(item.Title) == "" || (item.MediaType == "series" && len(item.Episodes) == 0)) {
 			item.Ready = false
-			message = "Queued; waiting for metadata before registering"
+			if item.MediaType == "series" && len(item.Episodes) == 0 {
+				message = "Queued; waiting for episode metadata"
+			} else {
+				message = "Queued; waiting for metadata before registering"
+			}
 		}
 		if item.Ready {
 			if err := s.monitor.register(ctx, item); err != nil {
