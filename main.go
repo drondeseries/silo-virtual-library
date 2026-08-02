@@ -780,13 +780,16 @@ func (s *runtimeServer) Configure(_ context.Context, request *pb.ConfigureReques
 		cacheTTLMinutes, err := parseCacheTTLMinutes(values["cache_ttl_minutes"])
 		if err != nil {
 			return nil, err
-			}
-			if strings.TrimSpace(manifestURL) != "" {
-				if _, err := streamEndpointWithPolicy(manifestURL, "movie", "tt0000001", allowInsecure); err != nil {
-					return nil, err
-				}
-			}
-			var qc QualityConfig
+		}
+		if strings.TrimSpace(manifestURL) == "" {
+			return &pb.ConfigureResponse{}, nil
+		}
+		if _, err := streamEndpointWithPolicy(manifestURL, "movie", "tt0000001", allowInsecure); err != nil {
+			return nil, err
+		}
+
+		var qc QualityConfig
+		qc.EnableProfiles, _ = values["enable_quality_profiles"].(bool)
 		qc.FallbackToAnyStream, _ = values["fallback_to_any_stream"].(bool)
 		profiles, err := decodeQualityProfiles(values["quality_profiles"])
 		if err != nil {
@@ -819,20 +822,20 @@ func (s *runtimeServer) Configure(_ context.Context, request *pb.ConfigureReques
 		if err != nil {
 			return nil, err
 		}
-			if movieLibraryID > 0 || seriesLibraryID > 0 {
-				library, err := newSiloLibrary(sdkruntime.Host(), movieLibraryID, seriesLibraryID, s.resolver)
-				if err != nil {
-					return nil, err
-				}
-				s.library = library
-				s.monitor.applyConfiguration(stagedMonitorConfig, monitoredItems, library, true)
-			}
-			s.resolver.Configure(resolverConfig{ManifestURL: manifestURL, AllowInsecure: allowInsecure, Quality: qc, CacheTTLMinutes: cacheTTLMinutes, TMDBAPIKey: strings.TrimSpace(tmdbAPIKey)})
-			return &pb.ConfigureResponse{}, nil
+			library, err := newSiloLibrary(sdkruntime.Host(), movieLibraryID, seriesLibraryID, s.resolver)
+		if err != nil {
+			return nil, err
+		}
+		// Every fallible validation step completes before any live component is
+		// changed, so a rejected configuration cannot leave mixed old/new state.
+		s.resolver.Configure(resolverConfig{ManifestURL: manifestURL, AllowInsecure: allowInsecure, Quality: qc, CacheTTLMinutes: cacheTTLMinutes, TMDBAPIKey: strings.TrimSpace(tmdbAPIKey)})
+		s.library = library
+		s.monitor.applyConfiguration(stagedMonitorConfig, monitoredItems, library, true)
+		return &pb.ConfigureResponse{}, nil
 	}
 	// No streaming config yet — accept empty configure so the plugin
-// starts and can serve dynamic config options (library dropdowns).
-return &pb.ConfigureResponse{}, nil
+	// starts and can serve dynamic config options (library dropdowns).
+	return &pb.ConfigureResponse{}, nil
 }
 
 func main() {
