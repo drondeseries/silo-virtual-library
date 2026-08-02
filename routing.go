@@ -927,7 +927,11 @@ func fetchTMDBRelease(ctx context.Context, id, key string) (time.Time, error) {
 		return time.Time{}, err
 	}
 	results := data.Results
-	for _, typ := range []int{4, 5} {
+	// TMDB release types:
+	// Type 4: Digital (VOD, iTunes)
+	// Type 5: Physical (Blu-ray, DVD)
+	// Type 6: TV / Streaming Originals (Apple TV+, Netflix, Disney+)
+	for _, typ := range []int{4, 5, 6} {
 		var earliest time.Time
 		for _, r := range results {
 			for _, d := range r.Dates {
