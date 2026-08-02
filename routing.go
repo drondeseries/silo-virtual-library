@@ -858,12 +858,18 @@ func (m *mediaMonitor) movieRelease(ctx context.Context, item monitoredMedia) (t
 	}
 	for _, v := range []string{payload.Meta.ReleaseInfo, payload.Meta.Year} {
 		if len(strings.TrimSpace(v)) >= 4 {
-			if y, e := strconv.Atoi(strings.TrimSpace(v)[:4]); e == nil && y < time.Now().Year() {
-				return time.Date(y, 1, 1, 0, 0, 0, 0, time.UTC), nil
+			if y, e := strconv.Atoi(strings.TrimSpace(v)[:4]); e == nil {
+				if y < time.Now().Year() {
+					// Previous catalog years can be presumed released on Jan 1 of that past year.
+					return time.Date(y, 1, 1, 0, 0, 0, 0, time.UTC), nil
+				}
+				// Current-year or future-year titles without an explicit home release date
+				// must remain gated as theatrical/unreleased until verified.
+				return time.Time{}, errNoHomeRelease
 			}
 		}
 	}
-	return time.Time{}, errors.New("Cinemeta has no release date")
+	return time.Time{}, errNoHomeRelease
 }
 
 func (m *mediaMonitor) fetchTMDBMovieRuntime(ctx context.Context, item monitoredMedia) (int, error) {
