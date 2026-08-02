@@ -167,15 +167,15 @@
       "binaries": {
         "linux/amd64": {
           "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.41/plugin-linux-amd64",
-          "checksum": "b5f87f5d3ec670b3a8b43599add712981f64da3496ab84698f29671987ac50e2"
+          "checksum": "e10c0f795a657f2dc9baa29e692d53e1db84a0f3602c1e430e0bd008e8290737"
         },
         "linux/arm64": {
           "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.41/plugin-linux-arm64",
-          "checksum": "28d810824565a3113ca7d2a49e69ba7885d98df9259ffb024547dafdea28b261"
+          "checksum": "d2f74b6767baba4aa6a670d861d28a61db717704968f937505a72ade9f20c523"
         },
         "darwin/arm64": {
           "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.41/plugin-darwin-arm64",
-          "checksum": "23b4d1106345996a5af6e8fd3fec7f3f91044c90d07978604b8e5716c2dcb9a6"
+          "checksum": "561a399b160a37192caccdeb761d9b2ae0d60e365e8d3ced1dd09f0b71442748"
         }
       }
     }
