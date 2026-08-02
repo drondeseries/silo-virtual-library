@@ -382,6 +382,13 @@ func (s *runtimeServer) Fulfill(ctx context.Context, req *pb.FulfillRequest) (re
 		}
 		item.MediaFolderID = folderID
 	}
+	// If media is available but still has no title (Silo did not include one in
+	// the request and metadata lookup hasn't resolved it yet), keep it queued so
+	// the scheduled monitor can retry once metadata arrives.
+	if item.Ready && strings.TrimSpace(item.Title) == "" {
+		item.Ready = false
+		message = "Queued; waiting for metadata before registering"
+	}
 	if item.Ready {
 		if err := s.monitor.register(ctx, item); err != nil {
 			return nil, fmt.Errorf("register virtual media: %w", err)
@@ -418,6 +425,12 @@ func (s *runtimeServer) CheckStatus(ctx context.Context, req *pb.CheckStatusRequ
 			item = base
 		}
 		item, message, _ := s.monitor.evaluate(ctx, item)
+		// If media is available but still has no title (metadata not yet resolved),
+		// keep it queued rather than failing the RPC with an SDK validation error.
+		if item.Ready && strings.TrimSpace(item.Title) == "" {
+			item.Ready = false
+			message = "Queued; waiting for metadata before registering"
+		}
 		if item.Ready {
 			if err := s.monitor.register(ctx, item); err != nil {
 				return nil, fmt.Errorf("register virtual media: %w", err)

@@ -104,6 +104,12 @@ func movieVirtualURI(mediaType, streamID string) string {
 }
 
 func (l *siloLibrary) Register(ctx context.Context, item monitoredMedia) error {
+	// The SDK client rejects registrations with an empty title before the RPC
+	// even leaves the process.  Guard here so callers get a clear diagnostic
+	// instead of a generic gRPC error.
+	if strings.TrimSpace(item.Title) == "" {
+		return fmt.Errorf("register virtual media: title is required (stream %s has no title yet — metadata may still be loading)", item.StreamID)
+	}
 	libraryID := l.movieLibraryID
 	if item.MediaType == "series" {
 		libraryID = l.seriesLibraryID
@@ -146,6 +152,19 @@ func (l *siloLibrary) Register(ctx context.Context, item monitoredMedia) error {
 		if len(req.Variants) == 0 {
 			req.Variants = configuredVariants(l.resolver, virtualURI)
 		}
+		// The server deduplicates URIs across the top-level VirtualURI and every
+		// variant in the same request.  When quality profiles are disabled,
+		// GetConfiguredVariants returns a single "Default" variant whose URI is
+		// identical to the top-level VirtualURI — strip those to avoid a
+		// "duplicate virtual URI" rejection.  Multi-profile variants use query
+		// parameters (?profile=…) so their URIs are always distinct.
+		filtered := req.Variants[:0]
+		for _, v := range req.Variants {
+			if v.VirtualURI != req.VirtualURI {
+				filtered = append(filtered, v)
+			}
+		}
+		req.Variants = filtered
 	}
 	_, err := l.host.UpsertVirtualMedia(ctx, req)
 	if err != nil {
