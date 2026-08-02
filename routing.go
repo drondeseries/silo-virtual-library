@@ -452,22 +452,27 @@ func (s *runtimeServer) ListConfigOptions(ctx context.Context, _ *pb.ListConfigO
 	}
 	libs, err := host.ListLibraries(ctx, "")
 	if err != nil {
-		return &pb.ListConfigOptionsResponse{}, fmt.Errorf("list host libraries for config options: %w", err)
+		return nil, fmt.Errorf("list host libraries for config options: %w", err)
 	}
+	s.monitor.logger.Info("ListConfigOptions: host returned libraries", "count", len(libs))
 	movies := make([]*pb.ConfigOption, 0)
 	series := make([]*pb.ConfigOption, 0)
 	for _, lib := range libs {
 		if lib == nil {
 			continue
 		}
-		switch lib.GetMediaType() {
-		case "movie":
+		mediaType := strings.ToLower(strings.TrimSpace(lib.GetMediaType()))
+		s.monitor.logger.Info("ListConfigOptions: library", "id", lib.GetId(), "name", lib.GetName(), "media_type", mediaType)
+		switch mediaType {
+		case "movie", "movies":
 			movies = append(movies, &pb.ConfigOption{Value: lib.GetId(), Label: lib.GetName()})
-		case "tv":
+		case "tv", "show", "shows", "series":
 			series = append(series, &pb.ConfigOption{Value: lib.GetId(), Label: lib.GetName()})
 		case "mixed":
 			movies = append(movies, &pb.ConfigOption{Value: lib.GetId(), Label: lib.GetName()})
 			series = append(series, &pb.ConfigOption{Value: lib.GetId(), Label: lib.GetName()})
+		default:
+			s.monitor.logger.Warn("ListConfigOptions: unrecognized library media_type", "id", lib.GetId(), "name", lib.GetName(), "media_type", mediaType)
 		}
 	}
 	optionsByField := map[string]*pb.ConfigOptionList{}
