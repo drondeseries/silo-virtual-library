@@ -3,7 +3,7 @@
     {
       "manifest": {
         "plugin_id": "com.drondeseries.silo-virtual-library",
-        "version": "0.4.37",
+        "version": "0.4.38",
         "silo_api_version": "v1",
         "capabilities": [
           {
@@ -163,18 +163,18 @@
         ]
       },
       "repo_url": "https://github.com/drondeseries/silo-virtual-library",
-      "checksums_url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.37/checksums.txt",
+      "checksums_url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.38/checksums.txt",
       "binaries": {
         "linux/amd64": {
-          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.37/plugin-linux-amd64",
+          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.38/plugin-linux-amd64",
           "checksum": "72ede4bed552049c9a99daacbbf6d17e4e782752f8d0c48453bfa46723557148"
         },
         "linux/arm64": {
-          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.37/plugin-linux-arm64",
+          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.38/plugin-linux-arm64",
           "checksum": "0bab82ffc6066f0b499a7dfd4cad33e479af2d1e7319b86e08ec3fc3b3583e80"
         },
         "darwin/arm64": {
-          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.37/plugin-darwin-arm64",
+          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.38/plugin-darwin-arm64",
           "checksum": "0ef825b7d7f1b85d1c6730b77a7b8458fdc00c543f4d29b0e044c2592084961f"
         }
       }
