@@ -828,7 +828,9 @@ func (s *runtimeServer) Configure(_ context.Context, request *pb.ConfigureReques
 		s.monitor.applyConfiguration(stagedMonitorConfig, monitoredItems, library, true)
 		return &pb.ConfigureResponse{}, nil
 	}
-	return nil, fmt.Errorf("required %q configuration is missing", configKey)
+	// No streaming config yet — accept empty configure so the plugin
+// starts and can serve dynamic config options (library dropdowns).
+return &pb.ConfigureResponse{}, nil
 }
 
 func main() {
