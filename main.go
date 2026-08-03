@@ -32,7 +32,7 @@ const (
 	virtualPathPrefix        = "virtual://"
 	configKey                = "streaming"
 	maxResponseBytes         = 4 << 20
-	defaultCacheTTLMinutes   = 10
+	defaultCacheTTLMinutes   = 1
 	minCacheTTLMinutes       = 1
 	maxCacheTTLMinutes       = 10080
 	maxCandidateCacheEntries = 256
@@ -335,6 +335,9 @@ func candidateCacheSize(candidates []StreamCandidate) int64 {
 }
 
 func (c *manifestStreamResolver) storeCandidateCache(key string, candidates []StreamCandidate, expiresAt, now time.Time, generation uint64) {
+	if len(candidates) == 0 {
+		return
+	}
 	size := candidateCacheSize(candidates)
 	if size > maxCandidateCacheBytes {
 		return
