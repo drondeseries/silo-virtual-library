@@ -481,10 +481,8 @@ func (s *runtimeServer) CheckStatus(ctx context.Context, req *pb.CheckStatusRequ
 				if err := s.monitor.remember(item); err != nil {
 					return nil, fmt.Errorf("persist monitored media: %w", err)
 				}
-			} else {
-				if err := s.monitor.forget(item.Key); err != nil {
-					return nil, fmt.Errorf("remove monitored media: %w", err)
-				}
+			} else if err := s.monitor.remember(item); err != nil {
+				return nil, fmt.Errorf("persist monitored media: %w", err)
 			}
 		} else {
 			if err := s.monitor.remember(item); err != nil {
