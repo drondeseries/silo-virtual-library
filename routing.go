@@ -624,7 +624,7 @@ func (s *runtimeServer) Run(ctx context.Context, req *pb.RunScheduledTaskRequest
 			continue
 		}
 		if updated.Ready {
-			if s.monitor.isRegistered(updated.Key) {
+			if updated.MediaType == "movie" && s.monitor.isRegistered(updated.Key) {
 				pending++
 				continue
 			}
