@@ -1,6 +1,6 @@
 module github.com/drondeseries/silo-virtual-library
 
-replace github.com/Silo-Server/silo-plugin-sdk => github.com/drondeseries/silo-plugin-sdk v0.10.1-0.20260801060038-d4c2c31ec749
+replace github.com/Silo-Server/silo-plugin-sdk => github.com/drondeseries/silo-plugin-sdk v0.10.1-0.20260802042530-9b936242c53f
 
 go 1.26.0
 
