@@ -1,6 +1,6 @@
 {
   "plugin_id": "com.drondeseries.silo-virtual-library",
-  "version": "0.4.51",
+  "version": "0.4.52",
   "silo_api_version": "v1",
   "capabilities": [
     {
@@ -178,5 +178,6 @@
         "submit_label": "Save streaming provider connection"
       }
     }
-  ]
+  ],
+  "checksum": "dada940e2d5258b71cf484505562bcb42d05640a0c358570f9c4432b1701a0f9"
 }

@@ -129,13 +129,20 @@ func (l *siloLibrary) Register(ctx context.Context, item monitoredMedia) error {
 			continue
 		}
 		virtualEpURI := fmt.Sprintf("%sseries/%s/%d/%d", virtualPathPrefix, canonicalStreamID, episode.Season, episode.Episode)
+		episodeVariants := configuredVariants(l.resolver, virtualEpURI)
+		// Strip variants whose URI duplicates the episode's primary VirtualURI
+		// to avoid server-side "duplicate virtual URI" rejection.
+		filtered := episodeVariants[:0]
+		for _, v := range episodeVariants {
+			if v.VirtualURI != virtualEpURI {
+				filtered = append(filtered, v)
+			}
+		}
 		episodes = append(episodes, runtimehost.VirtualEpisode{
 			SeasonNumber: episode.Season, EpisodeNumber: episode.Episode, Title: episode.Title, Overview: episode.Overview,
 			AirDate: episode.Released, RuntimeMinutes: episode.Runtime, StillPath: episode.Thumbnail,
-			// Profile variants are derived from local configuration only. Provider
-			// streams are still resolved when playback starts.
 			VirtualURI: virtualEpURI,
-			Variants:   configuredVariants(l.resolver, virtualEpURI),
+			Variants:   filtered,
 		})
 	}
 	req := runtimehost.VirtualMediaRequest{
