@@ -285,3 +285,31 @@ func (c *rssFeedCache) Match(item monitoredMedia) bool {
 	}
 	return false
 }
+
+// Validate performs a one-shot feed fetch and parse, returning a human-readable
+// status message. Unlike refresh(), it always hits the network and never caches —
+// it's used by the TestConnection handler.
+func (c *rssFeedCache) Validate(ctx context.Context) (string, error) {
+	feedURL, err := c.feedURL()
+	if err != nil {
+		return "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, feedURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Accept", "application/rss+xml, application/xml, text/xml")
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("connect to indexer: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("indexer returned HTTP %d", resp.StatusCode)
+	}
+	items, err := parseNewznabFeed(io.LimitReader(resp.Body, maxRSSFeedBytes+1))
+	if err != nil {
+		return "", fmt.Errorf("parse feed: %w", err)
+	}
+	return fmt.Sprintf("Indexer RSS feed OK: %d releases found", len(items)), nil
+}

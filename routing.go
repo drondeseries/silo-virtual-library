@@ -529,7 +529,19 @@ func (s *runtimeServer) TestConnection(ctx context.Context, _ *pb.TestConnection
 	if err != nil {
 		return &pb.TestConnectionResponse{Ok: false, Message: err.Error()}, nil
 	}
-	return &pb.TestConnectionResponse{Ok: true, Message: "Connected to streaming provider"}, nil
+	msg := "Connected to streaming provider"
+	s.monitor.mu.Lock()
+	rssFeed := s.monitor.rssFeed
+	s.monitor.mu.Unlock()
+	if rssFeed != nil && rssFeed.url != "" {
+		rssMsg, rssErr := rssFeed.Validate(ctx)
+		if rssErr != nil {
+			msg += fmt.Sprintf("\nIndexer RSS: %s", rssErr.Error())
+		} else {
+			msg += fmt.Sprintf("\n%s", rssMsg)
+		}
+	}
+	return &pb.TestConnectionResponse{Ok: true, Message: msg}, nil
 }
 func (s *runtimeServer) Run(ctx context.Context, req *pb.RunScheduledTaskRequest) (*pb.RunScheduledTaskResponse, error) {
 	if req.GetTaskKey() != "" && req.GetTaskKey() != "monitor-media" {
