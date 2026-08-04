@@ -1,11 +1,11 @@
 module github.com/drondeseries/silo-virtual-library
 
-replace github.com/Silo-Server/silo-plugin-sdk => github.com/drondeseries/silo-plugin-sdk v0.10.2
+replace github.com/Silo-Server/silo-plugin-sdk => github.com/drondeseries/silo-plugin-sdk v0.10.1-0.20260801060038-d4c2c31ec749
 
 go 1.26.0
 
 require (
-	github.com/Silo-Server/silo-plugin-sdk v0.10.0
+	github.com/Silo-Server/silo-plugin-sdk v0.12.0
 	github.com/hashicorp/go-hclog v1.6.3
 	google.golang.org/protobuf v1.36.11
 )
