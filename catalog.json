@@ -53,7 +53,7 @@
           "display_name": "Silo Virtual Library",
           "summary": "Zero-storage virtual playback backed by dynamic streaming provider resolution.",
           "description_markdown": "Registers and resolves host-managed `virtual://` virtual media through Silo's authenticated plugin control plane, without database credentials or stored media files.",
-          "setup_markdown": "Before enabling the request integration, enter the complete secret streaming provider manifest URL and pick one Movies library and one Series library from the host\u2019s library list. Add an optional TMDB token for authoritative worldwide digital/physical release gating. No database URL or media path is required.",
+          "setup_markdown": "Before enabling the request integration, enter the complete secret streaming provider manifest URL and pick one Movies library and one Series library from the host’s library list. Add an optional TMDB token for authoritative worldwide digital/physical release gating. No database URL or media path is required.",
           "homepage_url": "https://github.com/drondeseries/silo-virtual-library",
           "source_url": "https://github.com/drondeseries/silo-virtual-library",
           "support_url": "https://github.com/drondeseries/silo-virtual-library/issues",
@@ -88,7 +88,7 @@
                 {
                   "key": "movie_library_id",
                   "label": "Movies Library",
-                  "description": "Destination Silo Movies library. Need one? Create it at [Settings -> Libraries](/admin/libraries) and use the \"Add Virtual\" button on the Folders tab \u2014 no local storage required.",
+                  "description": "Destination Silo Movies library. Need one? Create it at [Settings -> Libraries](/admin/libraries) and use the \"Add Virtual\" button on the Folders tab — no local storage required.",
                   "control": 3,
                   "dynamic_options": true,
                   "required": false
@@ -96,7 +96,7 @@
                 {
                   "key": "series_library_id",
                   "label": "Series Library",
-                  "description": "Destination Silo Series library. Need one? Create it at [Settings -> Libraries](/admin/libraries) and use the \"Add Virtual\" button on the Folders tab \u2014 no local storage required.",
+                  "description": "Destination Silo Series library. Need one? Create it at [Settings -> Libraries](/admin/libraries) and use the \"Add Virtual\" button on the Folders tab — no local storage required.",
                   "control": 3,
                   "dynamic_options": true,
                   "required": false
@@ -106,7 +106,7 @@
                   "label": "Manifest URL",
                   "description": "The complete tokenized streaming provider URL ending in /manifest.json.",
                   "control": 3,
-                  "placeholder": "https://\u2026/manifest.json",
+                  "placeholder": "https://…/manifest.json",
                   "required": true,
                   "secret": true
                 },
@@ -126,7 +126,7 @@
                 {
                   "key": "cache_ttl_minutes",
                   "label": "Candidate Cache TTL (minutes)",
-                  "description": "How long provider stream candidates are cached (1\u201310080 minutes).",
+                  "description": "How long provider stream candidates are cached (1–10080 minutes).",
                   "control": 4,
                   "placeholder": "10"
                 },
@@ -163,19 +163,19 @@
         ]
       },
       "repo_url": "https://github.com/drondeseries/silo-virtual-library",
-      "checksums_url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.50/checksums.txt",
+      "checksums_url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.51/checksums.txt",
       "binaries": {
         "linux/amd64": {
-          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.50/plugin-linux-amd64",
-          "checksum": "ae52c92d4f196c06eed30fc8df234cf447e1236754c8048facd0b87673e0ae6b"
+          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.51/plugin-linux-amd64",
+          "checksum": "1ffe79e7a2ad85ad69bbbe36d05e61acc7d1d9fa3ed902316d56f07fcc4fdc5b"
         },
         "linux/arm64": {
-          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.50/plugin-linux-arm64",
-          "checksum": "26aac67ff8f6d235ea2e528e177701701c487eb33e96cabf0ec12b994dcbdb58"
+          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.51/plugin-linux-arm64",
+          "checksum": "3cde516c2f98ec4e5bfe0fa59c8689fd8f0affabd381513e5e1e2008b043a37e"
         },
         "darwin/arm64": {
-          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.50/plugin-darwin-arm64",
-          "checksum": "469678e066a49faf39da67b5682bb3900464483abdeb34d801eb1a84db5d588e"
+          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.51/plugin-darwin-arm64",
+          "checksum": "7c185b5aab30a220fd03451be5e50a84c2a1029e37624b35cc31baba4667592b"
         }
       }
     }
