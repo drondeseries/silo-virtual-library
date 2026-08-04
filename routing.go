@@ -58,13 +58,14 @@ type virtualEpisode struct {
 	Released                   time.Time
 }
 type mediaMonitor struct {
-	mu        sync.Mutex
-	resolver  streamResolver
-	logger    hclog.Logger
-	config    monitorConfig
-	items     map[string]monitoredMedia
-	registrar virtualMediaRegistrar
-	rssFeed   *rssFeedCache
+	mu         sync.Mutex
+	resolver   streamResolver
+	logger     hclog.Logger
+	config     monitorConfig
+	items      map[string]monitoredMedia
+	registrar  virtualMediaRegistrar
+	rssFeed    *rssFeedCache
+	registered map[string]struct{}
 }
 
 type virtualMediaLister interface {
@@ -75,6 +76,19 @@ func (m *mediaMonitor) setRegistrar(registrar virtualMediaRegistrar) {
 	m.mu.Lock()
 	m.registrar = registrar
 	m.mu.Unlock()
+}
+
+func (m *mediaMonitor) markRegistered(key string) {
+	m.mu.Lock()
+	m.registered[key] = struct{}{}
+	m.mu.Unlock()
+}
+
+func (m *mediaMonitor) isRegistered(key string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	_, ok := m.registered[key]
+	return ok
 }
 
 func (m *mediaMonitor) register(ctx context.Context, item monitoredMedia) error {
@@ -89,11 +103,12 @@ func (m *mediaMonitor) register(ctx context.Context, item monitoredMedia) error 
 
 func newMediaMonitor(resolver streamResolver, logger hclog.Logger) *mediaMonitor {
 	return &mediaMonitor{
-		resolver: resolver,
-		logger:   logger,
-		config:   monitorConfig{File: ".silo-virtual-library-monitored.json"},
-		items:    map[string]monitoredMedia{},
-		rssFeed:  newRSSFeedCache(nil),
+		resolver:   resolver,
+		logger:     logger,
+		config:     monitorConfig{File: ".silo-virtual-library-monitored.json"},
+		items:      map[string]monitoredMedia{},
+		rssFeed:    newRSSFeedCache(nil),
+		registered: map[string]struct{}{},
 	}
 }
 func (m *mediaMonitor) Configure(c monitorConfig) error {
@@ -413,6 +428,7 @@ func (s *runtimeServer) Fulfill(ctx context.Context, req *pb.FulfillRequest) (re
 		if err := s.monitor.register(ctx, item); err != nil {
 			return nil, fmt.Errorf("register virtual media: %w", err)
 		}
+		s.monitor.markRegistered(item.Key)
 		message = "Virtual media registered in Silo library"
 	}
 	if err := s.monitor.remember(item); err != nil {
@@ -459,6 +475,7 @@ func (s *runtimeServer) CheckStatus(ctx context.Context, req *pb.CheckStatusRequ
 			if err := s.monitor.register(ctx, item); err != nil {
 				return nil, fmt.Errorf("register virtual media: %w", err)
 			}
+			s.monitor.markRegistered(item.Key)
 			message = "Virtual media registered in Silo library"
 			if item.MediaType == "series" {
 				if err := s.monitor.remember(item); err != nil {
@@ -554,7 +571,6 @@ func (s *runtimeServer) Run(ctx context.Context, req *pb.RunScheduledTaskRequest
 	}
 	registrar := s.monitor.registrar
 	s.monitor.mu.Unlock()
-	alreadyRegistered := map[string]struct{}{}
 	if lister, ok := registrar.(virtualMediaLister); ok {
 		existing, err := lister.ListVirtual(ctx)
 		if err != nil {
@@ -562,7 +578,7 @@ func (s *runtimeServer) Run(ctx context.Context, req *pb.RunScheduledTaskRequest
 		}
 		for _, item := range existing {
 			itemsByKey[item.Key] = item
-			alreadyRegistered[item.Key] = struct{}{}
+			s.monitor.markRegistered(item.Key)
 		}
 	}
 	items := make([]monitoredMedia, 0, len(itemsByKey))
@@ -608,7 +624,7 @@ func (s *runtimeServer) Run(ctx context.Context, req *pb.RunScheduledTaskRequest
 			continue
 		}
 		if updated.Ready {
-			if _, isRegistered := alreadyRegistered[updated.Key]; isRegistered {
+			if s.monitor.isRegistered(updated.Key) {
 				pending++
 				continue
 			}
@@ -618,6 +634,7 @@ func (s *runtimeServer) Run(ctx context.Context, req *pb.RunScheduledTaskRequest
 				s.monitor.logger.Error("register virtual media", "key", updated.Key, "error", err)
 				continue
 			}
+			s.monitor.markRegistered(updated.Key)
 			ready++
 			source := updated.SourceKey
 			if source == "" {
