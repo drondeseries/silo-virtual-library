@@ -554,6 +554,7 @@ func (s *runtimeServer) Run(ctx context.Context, req *pb.RunScheduledTaskRequest
 	}
 	registrar := s.monitor.registrar
 	s.monitor.mu.Unlock()
+	alreadyRegistered := map[string]struct{}{}
 	if lister, ok := registrar.(virtualMediaLister); ok {
 		existing, err := lister.ListVirtual(ctx)
 		if err != nil {
@@ -561,6 +562,7 @@ func (s *runtimeServer) Run(ctx context.Context, req *pb.RunScheduledTaskRequest
 		}
 		for _, item := range existing {
 			itemsByKey[item.Key] = item
+			alreadyRegistered[item.Key] = struct{}{}
 		}
 	}
 	items := make([]monitoredMedia, 0, len(itemsByKey))
@@ -606,6 +608,10 @@ func (s *runtimeServer) Run(ctx context.Context, req *pb.RunScheduledTaskRequest
 			continue
 		}
 		if updated.Ready {
+			if _, isRegistered := alreadyRegistered[updated.Key]; isRegistered {
+				pending++
+				continue
+			}
 			if err := s.monitor.register(ctx, updated); err != nil {
 				pending++
 				reconcileSafeBySource[source] = false
