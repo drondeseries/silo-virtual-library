@@ -1,6 +1,6 @@
 {
   "plugin_id": "com.drondeseries.silo-virtual-library",
-  "version": "0.4.44",
+  "version": "0.4.45",
   "silo_api_version": "v1",
   "capabilities": [
     {
@@ -50,7 +50,7 @@
     "display_name": "Silo Virtual Library",
     "summary": "Zero-storage virtual playback backed by dynamic streaming provider resolution.",
     "description_markdown": "Registers and resolves host-managed `virtual://` virtual media through Silo's authenticated plugin control plane, without database credentials or stored media files.",
-    "setup_markdown": "Before enabling the request integration, enter the complete secret streaming provider manifest URL and pick one Movies library and one Series library from the host’s library list. Add an optional TMDB token for authoritative worldwide digital/physical release gating. No database URL or media path is required.",
+    "setup_markdown": "Before enabling the request integration, enter the complete secret streaming provider manifest URL and pick one Movies library and one Series library from the host\u2019s library list. Add an optional TMDB token for authoritative worldwide digital/physical release gating. No database URL or media path is required.",
     "homepage_url": "https://github.com/drondeseries/silo-virtual-library",
     "source_url": "https://github.com/drondeseries/silo-virtual-library",
     "support_url": "https://github.com/drondeseries/silo-virtual-library/issues",
@@ -78,14 +78,14 @@
       "key": "streaming",
       "title": "streaming provider",
       "description": "Connection to the configured streaming provider Stremio addon.",
-      "json_schema": "{\"type\":\"object\",\"properties\":{\"manifest_url\":{\"type\":\"string\",\"format\":\"uri\",\"maxLength\":4096},\"movie_library_id\":{\"type\":\"integer\",\"minimum\":1,\"default\":1},\"series_library_id\":{\"type\":\"integer\",\"minimum\":1,\"default\":2},\"tmdb_api_key\":{\"type\":\"string\",\"maxLength\":4096},\"monitor_file\":{\"type\":\"string\",\"maxLength\":4096,\"default\":\".silo-virtual-library-monitored.json\"},\"allow_insecure_http\":{\"type\":\"boolean\",\"default\":false},\"cache_ttl_minutes\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":10080,\"default\":10},\"enable_quality_profiles\":{\"type\":\"boolean\",\"default\":false},\"quality_profiles\":{\"type\":\"array\",\"maxItems\":10,\"items\":{\"type\":\"object\",\"properties\":{\"label\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":128},\"resolution\":{\"type\":\"string\",\"maxLength\":64},\"include_regex\":{\"type\":\"string\",\"maxLength\":1024},\"exclude_regex\":{\"type\":\"string\",\"maxLength\":1024},\"preferred_order\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":10000},\"codec_video\":{\"type\":\"string\",\"maxLength\":64},\"codec_audio\":{\"type\":\"string\",\"maxLength\":64},\"hdr\":{\"type\":\"string\",\"maxLength\":64}},\"required\":[\"label\"],\"additionalProperties\":false}},\"fallback_to_any_stream\":{\"type\":\"boolean\",\"default\":false}},\"required\":[\"manifest_url\"],\"additionalProperties\":false}",
+      "json_schema": "{\"type\":\"object\",\"properties\":{\"manifest_url\":{\"type\":\"string\",\"format\":\"uri\",\"maxLength\":4096},\"movie_library_id\":{\"type\":\"integer\",\"minimum\":1,\"default\":1},\"series_library_id\":{\"type\":\"integer\",\"minimum\":1,\"default\":2},\"tmdb_api_key\":{\"type\":\"string\",\"maxLength\":4096},\"monitor_file\":{\"type\":\"string\",\"maxLength\":4096,\"default\":\".silo-virtual-library-monitored.json\"},\"allow_insecure_http\":{\"type\":\"boolean\",\"default\":false},\"cache_ttl_minutes\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":10080,\"default\":10},\"enable_quality_profiles\":{\"type\":\"boolean\",\"default\":false},\"quality_profiles\":{\"type\":\"array\",\"maxItems\":10,\"items\":{\"type\":\"object\",\"properties\":{\"label\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":128},\"resolution\":{\"type\":\"string\",\"maxLength\":64},\"include_regex\":{\"type\":\"string\",\"maxLength\":1024},\"exclude_regex\":{\"type\":\"string\",\"maxLength\":1024},\"preferred_order\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":10000},\"codec_video\":{\"type\":\"string\",\"maxLength\":64},\"codec_audio\":{\"type\":\"string\",\"maxLength\":64},\"hdr\":{\"type\":\"string\",\"maxLength\":64}},\"required\":[\"label\"],\"additionalProperties\":false}},\"fallback_to_any_stream\":{\"type\":\"boolean\",\"default\":false},\"indexer_rss_url\":{\"type\":\"string\",\"format\":\"uri\",\"maxLength\":4096,\"description\":\"Optional Newznab/Torznab RSS feed URL (e.g. Prowlarr) for release availability polling.\"},\"indexer_api_key\":{\"type\":\"string\",\"maxLength\":4096,\"description\":\"API key for the indexer RSS feed. Leave blank if the feed is open.\"},\"indexer_rss_check_minutes\":{\"type\":\"integer\",\"minimum\":15,\"maximum\":10080,\"default\":15,\"description\":\"How often to poll the indexer RSS feed (minutes, min 15).\"}},\"required\":[\"manifest_url\"],\"additionalProperties\":false}",
       "required": true,
       "admin_form": {
         "fields": [
           {
             "key": "movie_library_id",
             "label": "Movies Library",
-            "description": "Destination Silo Movies library. Need one? Create it at [Settings -> Libraries](/admin/libraries) and use the \"Add Virtual\" button on the Folders tab — no local storage required.",
+            "description": "Destination Silo Movies library. Need one? Create it at [Settings -> Libraries](/admin/libraries) and use the \"Add Virtual\" button on the Folders tab \u2014 no local storage required.",
             "control": "ADMIN_FORM_CONTROL_SELECT",
             "dynamic_options": true,
             "required": false
@@ -93,7 +93,7 @@
           {
             "key": "series_library_id",
             "label": "Series Library",
-            "description": "Destination Silo Series library. Need one? Create it at [Settings -> Libraries](/admin/libraries) and use the \"Add Virtual\" button on the Folders tab — no local storage required.",
+            "description": "Destination Silo Series library. Need one? Create it at [Settings -> Libraries](/admin/libraries) and use the \"Add Virtual\" button on the Folders tab \u2014 no local storage required.",
             "control": "ADMIN_FORM_CONTROL_SELECT",
             "dynamic_options": true,
             "required": false
@@ -103,7 +103,7 @@
             "label": "Manifest URL",
             "description": "The complete tokenized streaming provider URL ending in /manifest.json.",
             "control": "ADMIN_FORM_CONTROL_PASSWORD",
-            "placeholder": "https://…/manifest.json",
+            "placeholder": "https://\u2026/manifest.json",
             "required": true,
             "secret": true
           },
@@ -123,7 +123,7 @@
           {
             "key": "cache_ttl_minutes",
             "label": "Candidate Cache TTL (minutes)",
-            "description": "How long provider stream candidates are cached (1–10080 minutes).",
+            "description": "How long provider stream candidates are cached (1\u201310080 minutes).",
             "control": "ADMIN_FORM_CONTROL_NUMBER",
             "placeholder": "10"
           },
@@ -152,6 +152,27 @@
             "label": "Fallback to Any Stream",
             "description": "Return 1 stream if no profiles match.",
             "control": "ADMIN_FORM_CONTROL_SWITCH"
+          },
+          {
+            "key": "indexer_rss_check_minutes",
+            "label": "RSS Check Interval (minutes)",
+            "description": "How often to poll the indexer RSS feed for new releases. Minimum 15 minutes.",
+            "control": "ADMIN_FORM_CONTROL_NUMBER",
+            "placeholder": "15"
+          },
+          {
+            "key": "indexer_api_key",
+            "label": "Indexer API Key",
+            "description": "API key for the indexer RSS feed. Leave blank if the feed is open.",
+            "control": "ADMIN_FORM_CONTROL_PASSWORD",
+            "secret": true
+          },
+          {
+            "key": "indexer_rss_url",
+            "label": "Indexer RSS Feed URL",
+            "description": "Optional Newznab/Torznab RSS URL (e.g. https://prowlarr.example.com/4/api). Polls for home-release availability.",
+            "control": "ADMIN_FORM_CONTROL_TEXT",
+            "placeholder": "https://prowlarr.example.com/4/api"
           }
         ],
         "submit_label": "Save streaming provider connection"

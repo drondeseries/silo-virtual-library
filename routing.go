@@ -64,6 +64,7 @@ type mediaMonitor struct {
 	config    monitorConfig
 	items     map[string]monitoredMedia
 	registrar virtualMediaRegistrar
+	rssFeed   *rssFeedCache
 }
 
 type virtualMediaLister interface {
@@ -87,7 +88,13 @@ func (m *mediaMonitor) register(ctx context.Context, item monitoredMedia) error 
 }
 
 func newMediaMonitor(resolver streamResolver, logger hclog.Logger) *mediaMonitor {
-	return &mediaMonitor{resolver: resolver, logger: logger, config: monitorConfig{File: ".silo-virtual-library-monitored.json"}, items: map[string]monitoredMedia{}}
+	return &mediaMonitor{
+		resolver: resolver,
+		logger:   logger,
+		config:   monitorConfig{File: ".silo-virtual-library-monitored.json"},
+		items:    map[string]monitoredMedia{},
+		rssFeed:  newRSSFeedCache(nil),
+	}
 }
 func (m *mediaMonitor) Configure(c monitorConfig) error {
 	configured, loaded, err := loadMonitorConfig(c)
@@ -304,16 +311,24 @@ func (m *mediaMonitor) evaluate(ctx context.Context, item monitoredMedia) (monit
 		}
 		release, err := m.movieRelease(ctx, item)
 		if err != nil {
+			if errors.Is(err, errNoHomeRelease) && m.rssFeed != nil && m.rssFeed.Match(item) {
+				item.Ready = true
+				return item, "Movie release confirmed by indexer RSS feed", nil
+			}
 			item.Ready = false
 			if errors.Is(err, errNoHomeRelease) {
-				return item, "Movie is theatrical-only; waiting for a home-media release", nil
+				return item, "Movie is theatrical-only; monitoring indexer RSS feed", nil
 			}
 			return item, "Release metadata unavailable; monitoring will retry", err
 		}
 		item.Release = release
 		if release.After(now) {
+			if m.rssFeed != nil && m.rssFeed.Match(item) {
+				item.Ready = true
+				return item, "Movie release confirmed by indexer RSS feed", nil
+			}
 			item.Ready = false
-			return item, "Movie is not released for home media yet", nil
+			return item, "Movie is not released for home media yet; monitoring indexer RSS feed", nil
 		}
 	}
 	if item.MediaType == "series" {
@@ -539,6 +554,11 @@ func (s *runtimeServer) Run(ctx context.Context, req *pb.RunScheduledTaskRequest
 	items := make([]monitoredMedia, 0, len(itemsByKey))
 	for _, item := range itemsByKey {
 		items = append(items, item)
+	}
+	if s.monitor.rssFeed != nil && s.monitor.rssFeed.url != "" {
+		if err := s.monitor.rssFeed.refreshIfStale(ctx); err != nil {
+			s.monitor.logger.Warn("refresh indexer RSS feed", "error", err)
+		}
 	}
 	ready, pending := 0, 0
 	keepBySource := make(map[string][]string)

@@ -53,11 +53,14 @@ type candidateLister interface {
 	GetCandidates(context.Context, string) ([]StreamCandidate, string, string, error)
 }
 type resolverConfig struct {
-	ManifestURL     string
-	AllowInsecure   bool
-	Quality         QualityConfig
-	CacheTTLMinutes int
-	TMDBAPIKey      string
+	ManifestURL            string
+	AllowInsecure          bool
+	Quality                QualityConfig
+	CacheTTLMinutes        int
+	TMDBAPIKey             string
+	IndexerRSSURL          string
+	IndexerAPIKey          string
+	IndexerRSSCheckMinutes int
 }
 type manifestStreamResolver struct {
 	client          *http.Client
@@ -825,14 +828,27 @@ func (s *runtimeServer) Configure(_ context.Context, request *pb.ConfigureReques
 		if err != nil {
 			return nil, err
 		}
-			library, err := newSiloLibrary(sdkruntime.Host(), movieLibraryID, seriesLibraryID, s.resolver)
+		library, err := newSiloLibrary(sdkruntime.Host(), movieLibraryID, seriesLibraryID, s.resolver)
 		if err != nil {
 			return nil, err
 		}
 		// Every fallible validation step completes before any live component is
 		// changed, so a rejected configuration cannot leave mixed old/new state.
-		s.resolver.Configure(resolverConfig{ManifestURL: manifestURL, AllowInsecure: allowInsecure, Quality: qc, CacheTTLMinutes: cacheTTLMinutes, TMDBAPIKey: strings.TrimSpace(tmdbAPIKey)})
+		rssURL, _ := values["indexer_rss_url"].(string)
+		rssKey, _ := values["indexer_api_key"].(string)
+		rssMinutes, _ := values["indexer_rss_check_minutes"].(float64)
+		s.resolver.Configure(resolverConfig{
+			ManifestURL:            manifestURL,
+			AllowInsecure:          allowInsecure,
+			Quality:                qc,
+			CacheTTLMinutes:        cacheTTLMinutes,
+			TMDBAPIKey:             strings.TrimSpace(tmdbAPIKey),
+			IndexerRSSURL:          strings.TrimSpace(rssURL),
+			IndexerAPIKey:          strings.TrimSpace(rssKey),
+			IndexerRSSCheckMinutes: int(rssMinutes),
+		})
 		s.library = library
+		s.monitor.rssFeed.Configure(strings.TrimSpace(rssURL), strings.TrimSpace(rssKey), int(rssMinutes))
 		s.monitor.applyConfiguration(stagedMonitorConfig, monitoredItems, library, true)
 		return &pb.ConfigureResponse{}, nil
 	}
