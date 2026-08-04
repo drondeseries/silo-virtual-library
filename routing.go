@@ -597,6 +597,14 @@ func (s *runtimeServer) Run(ctx context.Context, req *pb.RunScheduledTaskRequest
 			s.monitor.logger.Warn("evaluate virtual media", "key", item.Key, "error", evaluationErr)
 			continue
 		}
+		if updated.Ready && (strings.TrimSpace(updated.Title) == "" || (updated.MediaType == "series" && len(updated.Episodes) == 0)) {
+			updated.Ready = false
+			pending++
+			if err := s.monitor.remember(updated); err != nil {
+				return nil, err
+			}
+			continue
+		}
 		if updated.Ready {
 			if err := s.monitor.register(ctx, updated); err != nil {
 				pending++
