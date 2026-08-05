@@ -455,7 +455,12 @@ func (c *manifestStreamResolver) ValidateConnection(ctx context.Context) error {
 	if _, err := streamEndpointWithPolicy(manifestURL, "movie", "tt0000001", allowInsecure); err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, manifestURL, nil)
+	// Use a short timeout so TestConnection fails fast rather than blocking
+	// until the SDK's gRPC deadline. The client's 45s timeout is for streaming,
+	// not for a config test.
+	validateCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(validateCtx, http.MethodGet, manifestURL, nil)
 	if err != nil {
 		return fmt.Errorf("create manifest validation request: %w", err)
 	}
