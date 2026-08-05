@@ -108,13 +108,6 @@
             "secret": true
           },
           {
-            "key": "tmdb_api_key",
-            "label": "TMDB API Token",
-            "description": "Optional TMDB v4 token or v3 API key used to distinguish theatrical from home-media releases.",
-            "control": "ADMIN_FORM_CONTROL_PASSWORD",
-            "secret": true
-          },
-          {
             "key": "allow_insecure_http",
             "label": "Allow local HTTP",
             "description": "Allow plain HTTP only for localhost, .local, single-label Docker/service names, or private IPs. HTTPS remains the default.",
@@ -126,6 +119,35 @@
             "description": "How long provider stream candidates are cached (1\u201310080 minutes).",
             "control": "ADMIN_FORM_CONTROL_NUMBER",
             "placeholder": "10"
+          },
+          {
+            "key": "indexer_rss_url",
+            "label": "Prowlarr URL",
+            "description": "Your Prowlarr base URL (e.g. https://prowlarr.example.com). Searches all enabled indexers in one request.",
+            "control": "ADMIN_FORM_CONTROL_TEXT",
+            "placeholder": "https://prowlarr.example.com"
+          },
+          {
+            "key": "indexer_api_key",
+            "label": "Prowlarr API Key",
+            "description": "API key for your Prowlarr instance. Leave blank if not required.",
+            "control": "ADMIN_FORM_CONTROL_PASSWORD",
+            "secret": true,
+            "placeholder": "Optional API key"
+          },
+          {
+            "key": "indexer_rss_check_minutes",
+            "label": "Search Check Interval (minutes)",
+            "description": "How often to check Prowlarr for new releases. Minimum 15 minutes.",
+            "control": "ADMIN_FORM_CONTROL_NUMBER",
+            "placeholder": "15"
+          },
+          {
+            "key": "tmdb_api_key",
+            "label": "TMDB API Token",
+            "description": "Optional TMDB v4 token or v3 API key used to distinguish theatrical from home-media releases.",
+            "control": "ADMIN_FORM_CONTROL_PASSWORD",
+            "secret": true
           },
           {
             "key": "monitor_file",
@@ -152,27 +174,6 @@
             "label": "Fallback to Any Stream",
             "description": "Return 1 stream if no profiles match.",
             "control": "ADMIN_FORM_CONTROL_SWITCH"
-          },
-          {
-            "key": "indexer_rss_check_minutes",
-            "label": "Search Check Interval (minutes)",
-            "description": "How often to check Prowlarr for new releases. Minimum 15 minutes.",
-            "control": "ADMIN_FORM_CONTROL_NUMBER",
-            "placeholder": "15"
-          },
-          {
-            "key": "indexer_api_key",
-            "label": "Prowlarr API Key",
-            "description": "API key for your Prowlarr instance. Leave blank if not required.",
-            "control": "ADMIN_FORM_CONTROL_PASSWORD",
-            "secret": true
-          },
-          {
-            "key": "indexer_rss_url",
-            "label": "Prowlarr URL",
-            "description": "Your Prowlarr base URL (e.g. https://prowlarr.example.com). Searches all enabled indexers in one request.",
-            "control": "ADMIN_FORM_CONTROL_TEXT",
-            "placeholder": "https://prowlarr.example.com/4/api"
           }
         ],
         "submit_label": "Save streaming provider connection"
