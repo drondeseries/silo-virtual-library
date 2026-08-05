@@ -582,7 +582,14 @@ func (s *runtimeServer) Validate(context.Context, *pb.ValidateRequest) (*pb.Vali
 	return &pb.ValidateResponse{FieldErrors: map[string]string{}}, nil
 }
 func (s *runtimeServer) TestConnection(ctx context.Context, _ *pb.TestConnectionRequest) (*pb.TestConnectionResponse, error) {
-	err := s.resolver.ValidateConnection(ctx)
+	// Wrap everything in a hard 8s deadline so the SDK gRPC context
+	// never races against slow provider or indexer responses.
+	testCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	err := s.resolver.ValidateConnection(testCtx)
+	s.monitor.logger.Info("TestConnection phase", "phase", "provider", "duration_ms", time.Since(start).Milliseconds())
 	if err != nil {
 		return &pb.TestConnectionResponse{Ok: false, Message: err.Error()}, nil
 	}
@@ -591,7 +598,9 @@ func (s *runtimeServer) TestConnection(ctx context.Context, _ *pb.TestConnection
 	client := s.monitor.prowlarrClient()
 	s.monitor.mu.Unlock()
 	if client.URL() != "" {
-		searchMsg, searchErr := client.Validate(ctx)
+		start = time.Now()
+		searchMsg, searchErr := client.Validate(testCtx)
+		s.monitor.logger.Info("TestConnection phase", "phase", "prowlarr", "duration_ms", time.Since(start).Milliseconds())
 		if searchErr != nil {
 			msg += fmt.Sprintf("\nProwlarr search: %s", searchErr.Error())
 		} else {
