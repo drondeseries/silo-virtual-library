@@ -97,14 +97,28 @@ func (m *mediaMonitor) anyRSSMatch(item monitoredMedia) bool {
 
 // configureRSSFeeds replaces all RSS feed caches from the given URL list.
 // URLs are separated by newlines or commas. One API key and interval applies to all.
+// When a single URL looks like a Prowlarr base (no /api in path), the plugin
+// auto-discovers every enabled indexer and creates one feed per indexer.
 func (m *mediaMonitor) configureRSSFeeds(urls, apiKey string, intervalMinutes int) {
 	split := strings.FieldsFunc(urls, func(r rune) bool { return r == '\n' || r == ',' })
-	var feeds []*rssFeedCache
+	var rawURLs []string
 	for _, u := range split {
 		u = strings.TrimSpace(u)
 		if u == "" {
 			continue
 		}
+		rawURLs = append(rawURLs, u)
+	}
+	// Single URL that looks like a Prowlarr base: auto-discover all indexers.
+	if len(rawURLs) == 1 && !strings.Contains(rawURLs[0], "/api") {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if discovered, err := discoverProwlarrFeeds(ctx, rawURLs[0], apiKey, rssClient); err == nil && len(discovered) > 1 {
+			rawURLs = discovered
+		}
+	}
+	var feeds []*rssFeedCache
+	for _, u := range rawURLs {
 		feed := newRSSFeedCache(nil)
 		feed.Configure(u, apiKey, intervalMinutes)
 		feeds = append(feeds, feed)

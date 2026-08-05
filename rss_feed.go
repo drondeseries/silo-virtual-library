@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -70,6 +71,54 @@ func newRSSFeedCache(client *http.Client) *rssFeedCache {
 }
 
 // URL returns the configured indexer RSS URL, or empty string.
+
+// discoverProwlarrFeeds fetches the Prowlarr indexer list and returns a
+// Newznab-compatible URL for each enabled indexer. This lets users paste
+// one Prowlarr base URL and have every indexer included automatically.
+func discoverProwlarrFeeds(ctx context.Context, baseURL, apiKey string, client *http.Client) ([]string, error) {
+	base := strings.TrimRight(baseURL, "/")
+	if strings.Contains(base, "/api") {
+		// Already a Newznab endpoint, don't auto-discover.
+		return []string{base}, nil
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/api/v1/indexer", nil)
+	if err != nil {
+		return nil, err
+	}
+	if apiKey != "" {
+		req.Header.Set("X-Api-Key", apiKey)
+		req.URL.RawQuery = "apikey=" + url.QueryEscape(apiKey)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		// Not a Prowlarr instance or API not reachable — treat as single URL.
+		return []string{base}, nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return []string{base}, nil
+	}
+	var indexers []struct {
+		ID      int    `json:"id"`
+		Enable  bool   `json:"enable"`
+		Name    string `json:"name"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 512<<10)).Decode(&indexers); err != nil {
+		return []string{base}, nil
+	}
+	var feeds []string
+	for _, idx := range indexers {
+		if !idx.Enable {
+			continue
+		}
+		feeds = append(feeds, fmt.Sprintf("%s/%d/api", base, idx.ID))
+	}
+	if len(feeds) == 0 {
+		return []string{base}, nil
+	}
+	return feeds, nil
+}
+
 func (c *rssFeedCache) URL() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
