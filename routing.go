@@ -587,7 +587,8 @@ func (s *runtimeServer) TestConnection(ctx context.Context, _ *pb.TestConnection
 	testCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
 
-	start := time.Now()
+	totalStart := time.Now()
+	start := totalStart
 	err := s.resolver.ValidateConnection(testCtx)
 	s.monitor.logger.Info("TestConnection phase", "phase", "provider", "duration_ms", time.Since(start).Milliseconds())
 	if err != nil {
@@ -596,8 +597,10 @@ func (s *runtimeServer) TestConnection(ctx context.Context, _ *pb.TestConnection
 	msg := "Connected to streaming provider"
 	s.monitor.mu.Lock()
 	client := s.monitor.prowlarrClient()
+	prowlarrURL := client.URL()
 	s.monitor.mu.Unlock()
-	if client.URL() != "" {
+	s.monitor.logger.Info("TestConnection phase", "phase", "prowlarr-check", "url_configured", prowlarrURL != "")
+	if prowlarrURL != "" {
 		start = time.Now()
 		searchMsg, searchErr := client.Validate(testCtx)
 		s.monitor.logger.Info("TestConnection phase", "phase", "prowlarr", "duration_ms", time.Since(start).Milliseconds())
@@ -607,6 +610,7 @@ func (s *runtimeServer) TestConnection(ctx context.Context, _ *pb.TestConnection
 			msg += fmt.Sprintf("\n%s", searchMsg)
 		}
 	}
+	s.monitor.logger.Info("TestConnection phase", "phase", "done", "total_ms", time.Since(totalStart).Milliseconds())
 	return &pb.TestConnectionResponse{Ok: true, Message: msg}, nil
 }
 func (s *runtimeServer) Run(ctx context.Context, req *pb.RunScheduledTaskRequest) (*pb.RunScheduledTaskResponse, error) {
