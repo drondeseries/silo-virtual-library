@@ -64,7 +64,7 @@ type mediaMonitor struct {
 	config     monitorConfig
 	items      map[string]monitoredMedia
 	registrar  virtualMediaRegistrar
-	rssFeed    *rssFeedCache
+	rssFeeds  []*rssFeedCache
 	registered map[string]struct{}
 }
 
@@ -76,6 +76,52 @@ func (m *mediaMonitor) setRegistrar(registrar virtualMediaRegistrar) {
 	m.mu.Lock()
 	m.registrar = registrar
 	m.mu.Unlock()
+}
+
+// anyRSSMatch returns true when any configured RSS feed contains a
+// release matching the monitored item.
+func (m *mediaMonitor) anyRSSMatch(item monitoredMedia) bool {
+	m.mu.Lock()
+	feeds := m.rssFeeds
+	m.mu.Unlock()
+	if len(feeds) == 0 {
+		return false
+	}
+	for _, f := range feeds {
+		if f.Match(item) {
+			return true
+		}
+	}
+	return false
+}
+
+// configureRSSFeeds replaces all RSS feed caches from the given URL list.
+// URLs are separated by newlines or commas. One API key and interval applies to all.
+func (m *mediaMonitor) configureRSSFeeds(urls, apiKey string, intervalMinutes int) {
+	split := strings.FieldsFunc(urls, func(r rune) bool { return r == '\n' || r == ',' })
+	var feeds []*rssFeedCache
+	for _, u := range split {
+		u = strings.TrimSpace(u)
+		if u == "" {
+			continue
+		}
+		feed := newRSSFeedCache(nil)
+		feed.Configure(u, apiKey, intervalMinutes)
+		feeds = append(feeds, feed)
+	}
+	m.mu.Lock()
+	m.rssFeeds = feeds
+	m.mu.Unlock()
+}
+
+// anyRSSFeed returns the first RSS feed cache, or a new empty one for Validate.
+func (m *mediaMonitor) anyRSSFeed() *rssFeedCache {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.rssFeeds) > 0 {
+		return m.rssFeeds[0]
+	}
+	return newRSSFeedCache(nil)
 }
 
 func (m *mediaMonitor) markRegistered(key string) {
@@ -107,7 +153,7 @@ func newMediaMonitor(resolver streamResolver, logger hclog.Logger) *mediaMonitor
 		logger:     logger,
 		config:     monitorConfig{File: ".silo-virtual-library-monitored.json"},
 		items:      map[string]monitoredMedia{},
-		rssFeed:    newRSSFeedCache(nil),
+		rssFeeds:  nil,
 		registered: map[string]struct{}{},
 	}
 }
@@ -326,7 +372,7 @@ func (m *mediaMonitor) evaluate(ctx context.Context, item monitoredMedia) (monit
 		}
 		release, err := m.movieRelease(ctx, item)
 		if err != nil {
-			if errors.Is(err, errNoHomeRelease) && m.rssFeed != nil && m.rssFeed.Match(item) {
+			if errors.Is(err, errNoHomeRelease) && m.anyRSSMatch(item) {
 				item.Ready = true
 				return item, "Movie release confirmed by indexer RSS feed", nil
 			}
@@ -338,7 +384,7 @@ func (m *mediaMonitor) evaluate(ctx context.Context, item monitoredMedia) (monit
 		}
 		item.Release = release
 		if release.After(now) {
-			if m.rssFeed != nil && m.rssFeed.Match(item) {
+			if m.anyRSSMatch(item) {
 				item.Ready = true
 				return item, "Movie release confirmed by indexer RSS feed", nil
 			}
@@ -546,10 +592,10 @@ func (s *runtimeServer) TestConnection(ctx context.Context, _ *pb.TestConnection
 	}
 	msg := "Connected to streaming provider"
 	s.monitor.mu.Lock()
-	rssFeed := s.monitor.rssFeed
+	feed := s.monitor.anyRSSFeed()
 	s.monitor.mu.Unlock()
-	if rssFeed != nil && rssFeed.url != "" {
-		rssMsg, rssErr := rssFeed.Validate(ctx)
+	if feed.URL() != "" {
+		rssMsg, rssErr := feed.Validate(ctx)
 		if rssErr != nil {
 			msg += fmt.Sprintf("\nIndexer RSS: %s", rssErr.Error())
 		} else {
@@ -583,9 +629,15 @@ func (s *runtimeServer) Run(ctx context.Context, req *pb.RunScheduledTaskRequest
 	for _, item := range itemsByKey {
 		items = append(items, item)
 	}
-	if s.monitor.rssFeed != nil && s.monitor.rssFeed.url != "" {
-		if err := s.monitor.rssFeed.refreshIfStale(ctx); err != nil {
-			s.monitor.logger.Warn("refresh indexer RSS feed", "error", err)
+	if len(s.monitor.rssFeeds) > 0 {
+				// Refresh every configured RSS feed.
+		s.monitor.mu.Lock()
+		feeds := s.monitor.rssFeeds
+		s.monitor.mu.Unlock()
+		for _, feed := range feeds {
+			if err := feed.refreshIfStale(ctx); err != nil {
+				s.monitor.logger.Warn("refresh indexer RSS feed", "error", err)
+			}
 		}
 	}
 	ready, pending := 0, 0

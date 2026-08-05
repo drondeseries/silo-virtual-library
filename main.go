@@ -872,7 +872,9 @@ func (s *runtimeServer) Configure(_ context.Context, request *pb.ConfigureReques
 			IndexerRSSCheckMinutes: int(rssMinutes),
 		})
 		s.library = library
-		s.monitor.rssFeed.Configure(strings.TrimSpace(rssURL), strings.TrimSpace(rssKey), int(rssMinutes))
+		// Support multiple RSS feed URLs separated by newlines so users
+		// can add every Prowlarr indexer. One shared key and interval.
+		s.monitor.configureRSSFeeds(strings.TrimSpace(rssURL), strings.TrimSpace(rssKey), int(rssMinutes))
 		s.monitor.applyConfiguration(stagedMonitorConfig, monitoredItems, library, true)
 		return &pb.ConfigureResponse{}, nil
 	}

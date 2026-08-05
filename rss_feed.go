@@ -69,6 +69,13 @@ func newRSSFeedCache(client *http.Client) *rssFeedCache {
 	return &rssFeedCache{client: client}
 }
 
+// URL returns the configured indexer RSS URL, or empty string.
+func (c *rssFeedCache) URL() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.url
+}
+
 func (c *rssFeedCache) Configure(url, apiKey string, intervalMinutes int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
