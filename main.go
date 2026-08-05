@@ -525,6 +525,21 @@ func newProviderHTTPClient() *http.Client {
 	return newRestrictedRedirectHTTPClient(45 * time.Second)
 }
 
+
+// sameParentDomain reports whether host a and host b share at least two
+// rightmost domain labels (e.g. "v3-cinemeta.strem.io" and
+// "cinemeta-live.strem.io" both end with ".strem.io").
+func sameParentDomain(a, b string) bool {
+	aParts := strings.Split(strings.TrimSuffix(a, "."), ".")
+	bParts := strings.Split(strings.TrimSuffix(b, "."), ".")
+	if len(aParts) < 3 || len(bParts) < 3 {
+		return false
+	}
+	aLast := strings.ToLower(strings.Join(aParts[len(aParts)-2:], "."))
+	bLast := strings.ToLower(strings.Join(bParts[len(bParts)-2:], "."))
+	return aLast == bLast
+}
+
 func newRestrictedRedirectHTTPClient(timeout time.Duration) *http.Client {
 	return &http.Client{
 		Timeout: timeout,
@@ -537,12 +552,21 @@ func newRestrictedRedirectHTTPClient(timeout time.Duration) *http.Client {
 			}
 			origin := via[0].URL
 			target := request.URL
-			if target.User != nil ||
-				!strings.EqualFold(origin.Scheme, target.Scheme) ||
-				!strings.EqualFold(origin.Host, target.Host) {
-				return errors.New("cross-origin redirects are not allowed")
+			if target.User != nil {
+				return errors.New("redirect with userinfo is not allowed")
 			}
-			return nil
+			if !strings.EqualFold(origin.Scheme, target.Scheme) {
+				return errors.New("cross-scheme redirects are not allowed")
+			}
+			if strings.EqualFold(origin.Host, target.Host) {
+				return nil
+			}
+			// Allow same-registered-domain redirects so well-known
+			// metadata providers redirect within their own domain.
+			if sameParentDomain(origin.Host, target.Host) {
+				return nil
+			}
+			return errors.New("cross-origin redirects are not allowed")
 		},
 	}
 }

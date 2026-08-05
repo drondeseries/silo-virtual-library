@@ -669,6 +669,14 @@ func (s *runtimeServer) Run(ctx context.Context, req *pb.RunScheduledTaskRequest
 
 func (m *mediaMonitor) fetchCinemeta(ctx context.Context, item monitoredMedia) (monitoredMedia, error) {
 	if item.IMDbID == "" {
+		// Try to resolve IMDb ID from TMDB when available.
+		if item.TMDBID != "" && m.config.TMDBAPIKey != "" {
+			if ids, err := fetchTMDBExternalIDs(ctx, item.MediaType, item.TMDBID, m.config.TMDBAPIKey); err == nil && ids.IMDbID != "" {
+				item.IMDbID = ids.IMDbID
+			}
+		}
+	}
+	if item.IMDbID == "" {
 		return item, errors.New("IMDb ID required for Cinemeta metadata")
 	}
 	endpoint := strings.TrimRight(cinemetaBaseURL, "/") + "/meta/" + item.MediaType + "/" + url.PathEscape(item.IMDbID) + ".json"
