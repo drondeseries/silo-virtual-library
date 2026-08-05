@@ -847,10 +847,12 @@ func (s *runtimeServer) Configure(_ context.Context, request *pb.ConfigureReques
 		}
 		// On a fresh server the host has no libraries yet.  The user must
 		// create at least one Movie and one Series library before this plugin
-		// can register virtual media into them.
+		// can register virtual media into them.  Log a warning but don't
+		// prevent startup when a configured library ID no longer exists --
+		// the admin UI needs to load so the user can fix the IDs.
 		if movieLibraryID > 0 || seriesLibraryID > 0 {
 			if err := validateLibraryIDs(sdkruntime.Host(), movieLibraryID, seriesLibraryID); err != nil {
-				return nil, err
+				hclog.New(&hclog.LoggerOptions{Name: "silo-virtual-library"}).Warn("library configuration needs attention", "error", err)
 			}
 		}
 		stagedMonitorConfig, monitoredItems, err := loadMonitorConfig(monitorConfig{TMDBAPIKey: strings.TrimSpace(tmdbAPIKey), File: strings.TrimSpace(monitorFile)})
