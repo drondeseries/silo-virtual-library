@@ -268,7 +268,11 @@ func (c *prowlarrSearchClient) Validate(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, searchURL, nil)
+	// Use a short timeout for validation; the regular refresh cycle uses the
+	// client's full timeout. TestConnection should fail fast, not block for 20s.
+	validateCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(validateCtx, http.MethodGet, searchURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("create request: %w", err)
 	}

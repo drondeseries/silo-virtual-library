@@ -3,7 +3,7 @@
     {
       "manifest": {
         "plugin_id": "com.drondeseries.silo-virtual-library",
-        "version": "0.4.57",
+        "version": "0.4.58",
         "silo_api_version": "v1",
         "capabilities": [
           {
@@ -53,7 +53,7 @@
           "display_name": "Silo Virtual Library",
           "summary": "Zero-storage virtual playback backed by dynamic streaming provider resolution.",
           "description_markdown": "Registers and resolves host-managed `virtual://` virtual media through Silo's authenticated plugin control plane, without database credentials or stored media files.",
-          "setup_markdown": "Before enabling the request integration, enter the complete secret streaming provider manifest URL and pick one Movies library and one Series library from the host’s library list. Add an optional TMDB token for authoritative worldwide digital/physical release gating. No database URL or media path is required.",
+          "setup_markdown": "Before enabling the request integration, enter the complete secret streaming provider manifest URL and pick one Movies library and one Series library from the host\u2019s library list. Add an optional TMDB token for authoritative worldwide digital/physical release gating. No database URL or media path is required.",
           "homepage_url": "https://github.com/drondeseries/silo-virtual-library",
           "source_url": "https://github.com/drondeseries/silo-virtual-library",
           "support_url": "https://github.com/drondeseries/silo-virtual-library/issues",
@@ -88,7 +88,7 @@
                 {
                   "key": "movie_library_id",
                   "label": "Movies Library",
-                  "description": "Destination Silo Movies library. Need one? Create it at [Settings -> Libraries](/admin/libraries) and use the \"Add Virtual\" button on the Folders tab — no local storage required.",
+                  "description": "Destination Silo Movies library. Need one? Create it at [Settings -> Libraries](/admin/libraries) and use the \"Add Virtual\" button on the Folders tab \u2014 no local storage required.",
                   "control": 3,
                   "dynamic_options": true,
                   "required": false
@@ -96,7 +96,7 @@
                 {
                   "key": "series_library_id",
                   "label": "Series Library",
-                  "description": "Destination Silo Series library. Need one? Create it at [Settings -> Libraries](/admin/libraries) and use the \"Add Virtual\" button on the Folders tab — no local storage required.",
+                  "description": "Destination Silo Series library. Need one? Create it at [Settings -> Libraries](/admin/libraries) and use the \"Add Virtual\" button on the Folders tab \u2014 no local storage required.",
                   "control": 3,
                   "dynamic_options": true,
                   "required": false
@@ -106,7 +106,7 @@
                   "label": "Manifest URL",
                   "description": "The complete tokenized streaming provider URL ending in /manifest.json.",
                   "control": 3,
-                  "placeholder": "https://…/manifest.json",
+                  "placeholder": "https://\u2026/manifest.json",
                   "required": true,
                   "secret": true
                 },
@@ -126,7 +126,7 @@
                 {
                   "key": "cache_ttl_minutes",
                   "label": "Candidate Cache TTL (minutes)",
-                  "description": "How long provider stream candidates are cached (1–10080 minutes).",
+                  "description": "How long provider stream candidates are cached (1\u201310080 minutes).",
                   "control": 4,
                   "placeholder": "10"
                 },
