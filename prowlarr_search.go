@@ -1,0 +1,289 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"regexp"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+)
+
+const (
+	defaultSearchCheckMinutes = 15
+	minSearchCheckMinutes     = 15
+	maxSearchCheckMinutes     = 10080
+	maxSearchBodyBytes        = 8 << 20
+)
+
+var searchHTTPClient = newRestrictedRedirectHTTPClient(20 * time.Second)
+
+// prowlarrRelease is one result from Prowlarr's /api/v1/search endpoint.
+type prowlarrRelease struct {
+	GUID        string `json:"guid"`
+	Title       string `json:"title"`
+	Size        int64  `json:"size"`
+	Indexer     string `json:"indexer"`
+	IndexerID   int    `json:"indexerId"`
+	IMDbID      int64  `json:"imdbId"`
+	TMDBID      int64  `json:"tmdbId"`
+	TVDBID      int64  `json:"tvdbId"`
+	PublishDate string `json:"publishDate"`
+	DownloadURL string `json:"downloadUrl"`
+}
+
+// prowlarrSearchClient holds a cached snapshot of Prowlarr's recent releases
+// search and refreshes it on a configurable interval (min 15 minutes). One
+// request covers every enabled indexer.
+type prowlarrSearchClient struct {
+	mu        sync.Mutex
+	url       string
+	apiKey    string
+	interval  time.Duration
+	client    *http.Client
+	lastFetch time.Time
+	lastErr   error
+	releases  []prowlarrRelease
+}
+
+func newProwlarrSearchClient(client *http.Client) *prowlarrSearchClient {
+	if client == nil {
+		client = searchHTTPClient
+	}
+	return &prowlarrSearchClient{client: client}
+}
+
+// URL returns the configured Prowlarr base URL, or empty string.
+func (c *prowlarrSearchClient) URL() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.url
+}
+
+// Configure sets the Prowlarr base URL, API key, and check interval.
+func (c *prowlarrSearchClient) Configure(baseURL, apiKey string, intervalMinutes int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	newURL := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	newKey := strings.TrimSpace(apiKey)
+	if intervalMinutes < minSearchCheckMinutes {
+		intervalMinutes = defaultSearchCheckMinutes
+	}
+	if intervalMinutes > maxSearchCheckMinutes {
+		intervalMinutes = maxSearchCheckMinutes
+	}
+	newInterval := time.Duration(intervalMinutes) * time.Minute
+	if newURL != c.url || newKey != c.apiKey || newInterval != c.interval {
+		c.releases = nil
+		c.lastFetch = time.Time{}
+		c.lastErr = nil
+	}
+	c.url = newURL
+	c.apiKey = newKey
+	c.interval = newInterval
+}
+
+func (c *prowlarrSearchClient) searchURL() (string, error) {
+	c.mu.Lock()
+	raw := c.url
+	key := c.apiKey
+	c.mu.Unlock()
+	if strings.TrimSpace(raw) == "" {
+		return "", errors.New("Prowlarr search URL is not configured")
+	}
+	u, err := url.Parse(raw + "/api/v1/search")
+	if err != nil {
+		return "", fmt.Errorf("invalid Prowlarr URL: %w", err)
+	}
+	q := u.Query()
+	q.Set("limit", "200")
+	if key != "" {
+		q.Set("apikey", key)
+	}
+	u.RawQuery = q.Encode()
+	return u.String(), nil
+}
+
+func (c *prowlarrSearchClient) Stale() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.url == "" || c.lastFetch.IsZero() || time.Since(c.lastFetch) >= c.interval
+}
+
+func (c *prowlarrSearchClient) refreshIfStale(ctx context.Context) error {
+	if !c.Stale() {
+		return nil
+	}
+	return c.refresh(ctx)
+}
+
+func (c *prowlarrSearchClient) refresh(ctx context.Context) error {
+	searchURL, err := c.searchURL()
+	if err != nil {
+		c.mu.Lock()
+		c.lastErr = err
+		c.mu.Unlock()
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, searchURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", "application/json")
+	resp, err := c.client.Do(req)
+	if err != nil {
+		c.mu.Lock()
+		c.lastErr = err
+		c.mu.Unlock()
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		err := fmt.Errorf("Prowlarr search returned status %d", resp.StatusCode)
+		c.mu.Lock()
+		c.lastErr = err
+		c.mu.Unlock()
+		return err
+	}
+	releases, err := parseProwlarrSearch(io.LimitReader(resp.Body, maxSearchBodyBytes+1))
+	if err != nil {
+		c.mu.Lock()
+		c.lastErr = err
+		c.mu.Unlock()
+		return err
+	}
+	c.mu.Lock()
+	c.releases = releases
+	c.lastFetch = time.Now()
+	c.lastErr = nil
+	c.mu.Unlock()
+	return nil
+}
+
+func parseProwlarrSearch(r io.Reader) ([]prowlarrRelease, error) {
+	data, err := io.ReadAll(io.LimitReader(r, maxSearchBodyBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("read Prowlarr search: %w", err)
+	}
+	if int64(len(data)) > maxSearchBodyBytes {
+		return nil, fmt.Errorf("Prowlarr search response exceeds %d bytes", maxSearchBodyBytes)
+	}
+	var releases []prowlarrRelease
+	if err := json.Unmarshal(data, &releases); err != nil {
+		return nil, fmt.Errorf("decode Prowlarr search: %w", err)
+	}
+	return releases, nil
+}
+
+// --- Title normalization for fallback matching ---
+
+var prowlarrSepPattern = regexp.MustCompile(`[._\-/()\[\]{}]`)
+var prowlarrTagPattern = regexp.MustCompile(`(?i)\b(2160p|1080p|720p|480p|4k|uhd|hdr|dolby|dolby.?vision|dv|hdr10|hdr10\+|ddp|dd|dts|dts-?hd|truehd|flac|aac|ac3|atmos|x264|x265|hevc|avc|av1|web-?dl|web-?rip|web|blu-?ray|brrip|bdrip|hdtv|dvdrip|remux|proper|repack|extended|imax|directors.?cut|unrated|multi|dual|10bit|8bit|10-?bit|h\.?264|h\.?265|s[0-9]{2}e[0-9]{2}|season[0-9]+|episode[0-9]+|amzn|amazon|nf|netflix|dsnp|disney|hbo|max|appletv|itunes|vudu|prime|red|group|post|subbed|dubbed|dual-?audio|hc|hdcam|cam|ts|telesync|telecine|screener|scr|complete|1080|720|2160)\b.*`)
+var prowlarrCleanPattern = regexp.MustCompile(`[^a-z0-9]+`)
+var prowlarrYearPattern = regexp.MustCompile(`\b(19|20)\d{2}\b`)
+
+func normalizeReleaseTitle(raw string) (title string, year int) {
+	s := prowlarrSepPattern.ReplaceAllString(raw, " ")
+	s = prowlarrTagPattern.ReplaceAllString(s, "")
+	parts := strings.Fields(strings.ToLower(s))
+	var kept []string
+	for _, p := range parts {
+		if m := prowlarrYearPattern.FindString(p); m != "" {
+			if y, err := strconv.Atoi(m); err == nil {
+				year = y
+			}
+			continue
+		}
+		if len(p) > 1 {
+			kept = append(kept, p)
+		}
+	}
+	cleaned := prowlarrCleanPattern.ReplaceAllString(strings.Join(kept, " "), " ")
+	return strings.TrimSpace(cleaned), year
+}
+
+// Match returns true when any release in the cached search results
+// corresponds to the monitored media. Prefers IMDb/TMDB/TVDB IDs,
+// falling back to normalized title+year comparison.
+func (c *prowlarrSearchClient) Match(item monitoredMedia) bool {
+	c.mu.Lock()
+	releases := c.releases
+	c.mu.Unlock()
+	if len(releases) == 0 {
+		return false
+	}
+	wantTitle, titleYear := normalizeReleaseTitle(item.Title)
+	wantYear := item.Year
+	if wantYear == 0 && titleYear != 0 {
+		wantYear = int32(titleYear)
+	}
+	if wantTitle == "" {
+		return false
+	}
+	wantIMDb, _ := strconv.ParseInt(item.IMDbID, 10, 64)
+	wantTMDB, _ := strconv.ParseInt(item.TMDBID, 10, 64)
+	wantTVDB, _ := strconv.ParseInt(item.TVDBID, 10, 64)
+
+	for _, r := range releases {
+		// Fast path: direct ID match.
+		if wantIMDb > 0 && r.IMDbID > 0 && wantIMDb == r.IMDbID {
+			return true
+		}
+		if wantTMDB > 0 && r.TMDBID > 0 && wantTMDB == r.TMDBID {
+			return true
+		}
+		if wantTVDB > 0 && r.TVDBID > 0 && wantTVDB == r.TVDBID {
+			return true
+		}
+
+		// Fallback: title+year matching.
+		gotTitle, gotYear := normalizeReleaseTitle(r.Title)
+		if gotTitle == "" {
+			continue
+		}
+		titleMatch := strings.Contains(gotTitle, wantTitle) || strings.Contains(wantTitle, gotTitle)
+		if !titleMatch {
+			continue
+		}
+		if wantYear != 0 && gotYear != 0 && int(wantYear) != gotYear {
+			continue
+		}
+		if wantYear == 0 && len(strings.Fields(wantTitle)) < 2 {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// Validate performs a one-shot search and returns a human-readable status.
+func (c *prowlarrSearchClient) Validate(ctx context.Context) (string, error) {
+	searchURL, err := c.searchURL()
+	if err != nil {
+		return "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, searchURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("connect to Prowlarr: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("Prowlarr returned HTTP %d", resp.StatusCode)
+	}
+	releases, err := parseProwlarrSearch(io.LimitReader(resp.Body, maxSearchBodyBytes+1))
+	if err != nil {
+		return "", fmt.Errorf("parse search: %w", err)
+	}
+	return fmt.Sprintf("Prowlarr search OK: %d recent releases across all indexers", len(releases)), nil
+}

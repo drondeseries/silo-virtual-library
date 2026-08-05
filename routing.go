@@ -64,7 +64,7 @@ type mediaMonitor struct {
 	config     monitorConfig
 	items      map[string]monitoredMedia
 	registrar  virtualMediaRegistrar
-	rssFeeds  []*rssFeedCache
+	prowlarr  *prowlarrSearchClient
 	registered map[string]struct{}
 }
 
@@ -78,64 +78,46 @@ func (m *mediaMonitor) setRegistrar(registrar virtualMediaRegistrar) {
 	m.mu.Unlock()
 }
 
-// anyRSSMatch returns true when any configured RSS feed contains a
+// prowlarrMatch returns true when any configured RSS feed contains a
 // release matching the monitored item.
-func (m *mediaMonitor) anyRSSMatch(item monitoredMedia) bool {
+func (m *mediaMonitor) prowlarrMatch(item monitoredMedia) bool {
 	m.mu.Lock()
-	feeds := m.rssFeeds
+	c := m.prowlarr
 	m.mu.Unlock()
-	if len(feeds) == 0 {
+	if c == nil {
 		return false
 	}
-	for _, f := range feeds {
-		if f.Match(item) {
-			return true
-		}
-	}
-	return false
+	return c.Match(item)
 }
 
-// configureRSSFeeds replaces all RSS feed caches from the given URL list.
-// URLs are separated by newlines or commas. One API key and interval applies to all.
-// When a single URL looks like a Prowlarr base (no /api in path), the plugin
-// auto-discovers every enabled indexer and creates one feed per indexer.
-func (m *mediaMonitor) configureRSSFeeds(urls, apiKey string, intervalMinutes int) {
-	split := strings.FieldsFunc(urls, func(r rune) bool { return r == '\n' || r == ',' })
-	var rawURLs []string
-	for _, u := range split {
+// configureProwlarr sets up the Prowlarr search client with the first
+// non-empty URL from the list. Multiple URLs / per-indexer discovery are
+// no longer needed — /api/v1/search covers all indexers in one request.
+func (m *mediaMonitor) configureProwlarr(urls, apiKey string, intervalMinutes int) {
+	firstURL := ""
+	for _, u := range strings.FieldsFunc(urls, func(r rune) bool { return r == '\n' || r == ',' }) {
 		u = strings.TrimSpace(u)
-		if u == "" {
-			continue
+		if u != "" {
+			firstURL = u
+			break
 		}
-		rawURLs = append(rawURLs, u)
-	}
-	// Single URL that looks like a Prowlarr base: auto-discover all indexers.
-	if len(rawURLs) == 1 && !strings.Contains(rawURLs[0], "/api") {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if discovered, err := discoverProwlarrFeeds(ctx, rawURLs[0], apiKey, rssClient); err == nil && len(discovered) > 1 {
-			rawURLs = discovered
-		}
-	}
-	var feeds []*rssFeedCache
-	for _, u := range rawURLs {
-		feed := newRSSFeedCache(nil)
-		feed.Configure(u, apiKey, intervalMinutes)
-		feeds = append(feeds, feed)
 	}
 	m.mu.Lock()
-	m.rssFeeds = feeds
+	if m.prowlarr == nil {
+		m.prowlarr = newProwlarrSearchClient(nil)
+	}
 	m.mu.Unlock()
+	m.prowlarr.Configure(firstURL, apiKey, intervalMinutes)
 }
 
-// anyRSSFeed returns the first RSS feed cache, or a new empty one for Validate.
-func (m *mediaMonitor) anyRSSFeed() *rssFeedCache {
+// prowlarrClient returns the Prowlarr search client, or a new empty one for Validate.
+func (m *mediaMonitor) prowlarrClient() *prowlarrSearchClient {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if len(m.rssFeeds) > 0 {
-		return m.rssFeeds[0]
+	if m.prowlarr != nil {
+		return m.prowlarr
 	}
-	return newRSSFeedCache(nil)
+	return newProwlarrSearchClient(nil)
 }
 
 func (m *mediaMonitor) markRegistered(key string) {
@@ -167,7 +149,7 @@ func newMediaMonitor(resolver streamResolver, logger hclog.Logger) *mediaMonitor
 		logger:     logger,
 		config:     monitorConfig{File: ".silo-virtual-library-monitored.json"},
 		items:      map[string]monitoredMedia{},
-		rssFeeds:  nil,
+		prowlarr:  nil,
 		registered: map[string]struct{}{},
 	}
 }
@@ -386,7 +368,7 @@ func (m *mediaMonitor) evaluate(ctx context.Context, item monitoredMedia) (monit
 		}
 		release, err := m.movieRelease(ctx, item)
 		if err != nil {
-			if errors.Is(err, errNoHomeRelease) && m.anyRSSMatch(item) {
+			if errors.Is(err, errNoHomeRelease) && m.prowlarrMatch(item) {
 				item.Ready = true
 				return item, "Movie release confirmed by indexer RSS feed", nil
 			}
@@ -398,7 +380,7 @@ func (m *mediaMonitor) evaluate(ctx context.Context, item monitoredMedia) (monit
 		}
 		item.Release = release
 		if release.After(now) {
-			if m.anyRSSMatch(item) {
+			if m.prowlarrMatch(item) {
 				item.Ready = true
 				return item, "Movie release confirmed by indexer RSS feed", nil
 			}
@@ -606,14 +588,14 @@ func (s *runtimeServer) TestConnection(ctx context.Context, _ *pb.TestConnection
 	}
 	msg := "Connected to streaming provider"
 	s.monitor.mu.Lock()
-	feed := s.monitor.anyRSSFeed()
+	client := s.monitor.prowlarrClient()
 	s.monitor.mu.Unlock()
-	if feed.URL() != "" {
-		rssMsg, rssErr := feed.Validate(ctx)
-		if rssErr != nil {
-			msg += fmt.Sprintf("\nIndexer RSS: %s", rssErr.Error())
+	if client.URL() != "" {
+		searchMsg, searchErr := client.Validate(ctx)
+		if searchErr != nil {
+			msg += fmt.Sprintf("\nProwlarr search: %s", searchErr.Error())
 		} else {
-			msg += fmt.Sprintf("\n%s", rssMsg)
+			msg += fmt.Sprintf("\n%s", searchMsg)
 		}
 	}
 	return &pb.TestConnectionResponse{Ok: true, Message: msg}, nil
@@ -643,15 +625,12 @@ func (s *runtimeServer) Run(ctx context.Context, req *pb.RunScheduledTaskRequest
 	for _, item := range itemsByKey {
 		items = append(items, item)
 	}
-	if len(s.monitor.rssFeeds) > 0 {
-				// Refresh every configured RSS feed.
-		s.monitor.mu.Lock()
-		feeds := s.monitor.rssFeeds
-		s.monitor.mu.Unlock()
-		for _, feed := range feeds {
-			if err := feed.refreshIfStale(ctx); err != nil {
-				s.monitor.logger.Warn("refresh indexer RSS feed", "error", err)
-			}
+	s.monitor.mu.Lock()
+	client := s.monitor.prowlarr
+	s.monitor.mu.Unlock()
+	if client != nil {
+		if err := client.refreshIfStale(ctx); err != nil {
+			s.monitor.logger.Warn("refresh Prowlarr search", "error", err)
 		}
 	}
 	ready, pending := 0, 0
