@@ -455,19 +455,19 @@ func (c *manifestStreamResolver) ValidateConnection(ctx context.Context) error {
 	if _, err := streamEndpointWithPolicy(manifestURL, "movie", "tt0000001", allowInsecure); err != nil {
 		return err
 	}
-	// Use a short timeout so TestConnection fails fast rather than blocking
-	// until the SDK's gRPC deadline. The client's 45s timeout is for streaming,
-	// not for a config test.
-	validateCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(validateCtx, http.MethodGet, manifestURL, nil)
+	// Use a short-timeout clone of the provider client so TestConnection
+	// can't exhaust the SDK's gRPC deadline. Copy the transport (so mocks
+	// and redirect policies still work) but cap the round-trip at 5s.
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, manifestURL, nil)
 	if err != nil {
 		return fmt.Errorf("create manifest validation request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
-	client := c.client
-	if client == nil {
-		client = http.DefaultClient
+	var client *http.Client
+	if c.client != nil {
+		client = &http.Client{Timeout: 5 * time.Second, Transport: c.client.Transport, CheckRedirect: c.client.CheckRedirect}
+	} else {
+		client = &http.Client{Timeout: 5 * time.Second}
 	}
 	resp, err := client.Do(req)
 	if err != nil {

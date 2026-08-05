@@ -268,16 +268,15 @@ func (c *prowlarrSearchClient) Validate(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// Use a short timeout for validation; the regular refresh cycle uses the
-	// client's full timeout. TestConnection should fail fast, not block for 20s.
-	validateCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(validateCtx, http.MethodGet, searchURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, searchURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
-	resp, err := c.client.Do(req)
+	// Dedicated short-timeout client so a stale Prowlarr config can't exhaust
+	// the SDK's gRPC deadline during TestConnection.
+	validateClient := &http.Client{Timeout: 5 * time.Second}
+	resp, err := validateClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("connect to Prowlarr: %w", err)
 	}
