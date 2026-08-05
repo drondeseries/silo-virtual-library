@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/xml"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -74,6 +75,71 @@ func (c *rssFeedCache) URL() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.url
+}
+
+
+// prowlarrSearch queries Prowlarr's aggregated search API across all
+// configured indexers. When the RSS URL looks like a Prowlarr base URL
+// (no "/api" in the path), we use /api/v1/search instead of the per-indexer
+// Newznab endpoint. This lets users add one Prowlarr link and reach every
+// indexer without configuring each one separately.
+func (c *rssFeedCache) prowlarrSearch(ctx context.Context, item monitoredMedia) (bool, error) {
+	c.mu.Lock()
+	raw, key := c.url, c.apiKey
+	c.mu.Unlock()
+	if raw == "" {
+		return false, nil
+	}
+	// Only activate when URL looks like a Prowlarr base (no /api in path).
+	if strings.Contains(raw, "/api") {
+		return false, nil
+	}
+	base := strings.TrimRight(raw, "/")
+	query := item.IMDbID
+	if query == "" {
+		query = item.TMDBID
+	}
+	if query == "" {
+		query = item.Title
+	}
+	if query == "" {
+		return false, nil
+	}
+	kind := "movie"
+	if item.MediaType == "series" {
+		kind = "tv"
+	}
+	searchURL := fmt.Sprintf("%s/api/v1/search?query=%s&type=%s", base, url.QueryEscape(query), kind)
+	if key != "" {
+		searchURL += "&apikey=" + url.QueryEscape(key)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, searchURL, nil)
+	if err != nil {
+		return false, err
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return false, fmt.Errorf("Prowlarr search HTTP %d", resp.StatusCode)
+	}
+	var results []struct {
+		Title string `json:"title"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxRSSFeedBytes)).Decode(&results); err != nil {
+		return false, err
+	}
+	return len(results) > 0, nil
+}
+
+// isProwlarrBase reports whether the configured URL looks like a Prowlarr
+// base URL (no "/api" in path) rather than a Newznab endpoint.
+func (c *rssFeedCache) isProwlarrBase() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.url != "" && !strings.Contains(c.url, "/api")
 }
 
 func (c *rssFeedCache) Configure(url, apiKey string, intervalMinutes int) {

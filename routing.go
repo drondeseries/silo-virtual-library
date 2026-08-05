@@ -78,8 +78,9 @@ func (m *mediaMonitor) setRegistrar(registrar virtualMediaRegistrar) {
 	m.mu.Unlock()
 }
 
-// anyRSSMatch returns true when any configured RSS feed contains a
-// release matching the monitored item.
+// anyRSSMatch returns true when any configured feed matches the item.
+// For Prowlarr base URLs (no /api in path), the search API is used instead
+// of the RSS cache — one URL searches every configured Prowlarr indexer.
 func (m *mediaMonitor) anyRSSMatch(item monitoredMedia) bool {
 	m.mu.Lock()
 	feeds := m.rssFeeds
@@ -88,7 +89,14 @@ func (m *mediaMonitor) anyRSSMatch(item monitoredMedia) bool {
 		return false
 	}
 	for _, f := range feeds {
-		if f.Match(item) {
+		if f.isProwlarrBase() {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			ok, _ := f.prowlarrSearch(ctx, item)
+			cancel()
+			if ok {
+				return true
+			}
+		} else if f.Match(item) {
 			return true
 		}
 	}
