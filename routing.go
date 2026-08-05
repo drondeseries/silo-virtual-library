@@ -595,10 +595,8 @@ func (s *runtimeServer) TestConnection(ctx context.Context, _ *pb.TestConnection
 		return &pb.TestConnectionResponse{Ok: false, Message: err.Error()}, nil
 	}
 	msg := "Connected to streaming provider"
-	s.monitor.mu.Lock()
 	client := s.monitor.prowlarrClient()
 	prowlarrURL := client.URL()
-	s.monitor.mu.Unlock()
 	s.monitor.logger.Info("TestConnection phase", "phase", "prowlarr-check", "url_configured", prowlarrURL != "")
 	if prowlarrURL != "" {
 		start = time.Now()
