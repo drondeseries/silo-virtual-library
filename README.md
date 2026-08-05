@@ -107,3 +107,71 @@ The binary runs as a HashiCorp go-plugin subprocess and is normally started by S
 ## License
 
 No license has been selected for this starter project.
+
+## Quick-start checklist
+
+1. **Create virtual libraries** — Admin → Libraries → Add Library → Folders → Add Virtual → `virtual://movies` and `virtual://tv`
+2. **Configure plugin** — paste your streaming provider manifest URL, select the virtual libraries, save
+3. **Create a collection** — Admin → Collections → TMDB Collection → pick a preset (Trending, Popular, etc.) → toggle **Zero-storage virtual playback** ON
+4. **Sync** — the collection populates with metadata-only entries; no files are written to disk
+
+## Common issues
+
+### 502 on /playback/start
+
+The SSRF guard rejects streams on private addresses. If your provider is local (`localhost`, `192.168.x.x`, `.local`, Docker service names), enable **Allow local HTTP** in plugin settings.
+
+If using a reverse proxy with a public domain but local DNS rewrites: Silo must resolve the stream host to a public IP. Check `/etc/hosts` and DNS inside the Silo container.
+
+### "unsafe stream URL: remote stream host resolves to a non-public address"
+
+Same cause — enable **Allow local HTTP**.
+
+### Play button visible but no sources
+
+```bash
+# Check virtual files exist for the item
+docker exec postgres_silo psql -U silo -d silo -c \
+  "SELECT file_path FROM media_files WHERE content_id='movie-tmdb-XXXXX' AND container='virtual'"
+
+# If empty, trigger a catalog sync or re-add the media
+```
+
+### Virtual files disappeared overnight
+
+Make sure your Silo Server build includes the virtual file retention fix. Run `scan_libraries` and verify the count doesn't drop:
+
+```bash
+docker exec postgres_silo psql -U silo -d silo -c \
+  "SELECT COUNT(*) FROM media_files WHERE container='virtual'"
+```
+
+### Audio tracks or subtitles not showing
+
+Virtual files are probed on **first playback**. Play the file once — ffprobe discovers real tracks and persists them. After that, the detail page shows all available audio and subtitle options.
+
+## Diagnostic commands
+
+```bash
+# All virtual files
+docker exec postgres_silo psql -U silo -d silo -c \
+  "SELECT COUNT(*) FROM media_files WHERE container='virtual'"
+
+# Items with most virtual files
+docker exec postgres_silo psql -U silo -d silo -c \
+  "SELECT mi.content_id, mi.title, COUNT(mf.id)
+   FROM media_items mi JOIN media_files mf ON mf.content_id=mi.content_id
+   WHERE mf.container='virtual'
+   GROUP BY mi.content_id, mi.title ORDER BY 3 DESC LIMIT 20"
+
+# Check one item's virtual files
+docker exec postgres_silo psql -U silo -d silo -c \
+  "SELECT file_path, resolution, codec_video, codec_audio, hdr
+   FROM media_files WHERE content_id='movie-tmdb-XXXXX' AND container='virtual'"
+
+# Test a virtual URI resolves
+docker exec -it silo ffmpeg -i "virtual://movie/tt1234567" -f null /dev/null
+
+# Recent playback errors
+docker logs silo --tail 200 | grep -i "error\|virtual.*fail\|502"
+```
