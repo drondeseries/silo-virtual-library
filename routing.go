@@ -75,6 +75,7 @@ type virtualEpisode struct {
 	Overview  string    `json:"overview,omitempty"`
 	Thumbnail string    `json:"thumbnail,omitempty"`
 	Released  time.Time `json:"released,omitempty"`
+	Available bool      `json:"available,omitempty"`
 }
 type mediaMonitor struct {
 	mu         sync.Mutex
@@ -430,27 +431,36 @@ func (m *mediaMonitor) evaluate(ctx context.Context, item monitoredMedia) (monit
 		}
 	}
 	if item.MediaType == "series" {
-		aired := item.Episodes
-		if !item.Force {
-			aired = airedEpisodes(item.Episodes, now)
-			if matched := m.prowlarrMatchedEpisodes(item, item.Episodes); len(matched) > 0 {
-				aired = appendUniqueEpisodes(aired, matched)
-			}
-		} else {
-			valid := make([]virtualEpisode, 0, len(item.Episodes))
-			for _, episode := range episodeList(item.Episodes) {
-				if episode.Season > 0 && episode.Episode > 0 {
-					valid = append(valid, episode)
+		episodes := episodeList(item.Episodes)
+		if item.Force {
+			for i := range episodes {
+				if episodes[i].Season > 0 && episodes[i].Episode > 0 {
+					episodes[i].Available = true
 				}
 			}
-			aired = valid
+		} else {
+			available := appendUniqueEpisodes(airedEpisodes(episodes, now), m.prowlarrMatchedEpisodes(item, episodes))
+			for i := range episodes {
+				for _, match := range available {
+					if episodes[i].Season == match.Season && episodes[i].Episode == match.Episode {
+						episodes[i].Available = true
+						break
+					}
+				}
+			}
 		}
-		item.Episodes = aired
-		item.Ready = len(aired) > 0
+		item.Episodes = episodes
+		available := 0
+		for _, episode := range episodes {
+			if episode.Available {
+				available++
+			}
+		}
+		item.Ready = available > 0
 		if !item.Ready {
-			return item, "Series registered; monitoring for aired episodes", metadataErr
+			return item, "Series registered; monitoring for released episodes", metadataErr
 		}
-		return item, fmt.Sprintf("%d aired episodes registered for on-demand playback", len(aired)), metadataErr
+		return item, fmt.Sprintf("%d episodes registered for on-demand playback", available), metadataErr
 	}
 	item.Ready = true
 	return item, "Movie is available for home media", nil
@@ -507,6 +517,16 @@ func airedEpisodes(episodes []virtualEpisode, now time.Time) []virtualEpisode {
 		aired = append(aired, episode)
 	}
 	return aired
+}
+
+func missingEpisodes(episodes []virtualEpisode, _ time.Time) []virtualEpisode {
+	missing := make([]virtualEpisode, 0, len(episodes))
+	for _, episode := range episodeList(episodes) {
+		if episode.Season > 0 && episode.Episode > 0 && !episode.Released.IsZero() && !episode.Available {
+			missing = append(missing, episode)
+		}
+	}
+	return missing
 }
 
 func episodeMetadataComplete(episodes []virtualEpisode) bool {

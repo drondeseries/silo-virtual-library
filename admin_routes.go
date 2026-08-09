@@ -99,16 +99,21 @@ func (a *adminRoutes) searchQueueItem(ctx context.Context, fields map[string]*st
 func (a *adminRoutes) queueJSON() (*pb.HandleHTTPResponse, error) {
 	a.server.monitor.mu.Lock()
 	items := make([]monitoredMedia, 0, len(a.server.monitor.items))
+	now := time.Now()
 	for _, item := range a.server.monitor.items {
+		if item.MediaType == "series" {
+			item.Episodes = missingEpisodes(item.Episodes, now)
+			if len(item.Episodes) > 0 {
+				items = append(items, item)
+			}
+			continue
+		}
 		if !item.Ready {
 			items = append(items, item)
 		}
 	}
 	a.server.monitor.mu.Unlock()
 	sort.Slice(items, func(i, j int) bool {
-		if items[i].Ready != items[j].Ready {
-			return !items[i].Ready
-		}
 		return strings.ToLower(items[i].Title) < strings.ToLower(items[j].Title)
 	})
 	return adminJSON(http.StatusOK, map[string]any{"items": items, "count": len(items), "generated_at": time.Now().UTC()})
@@ -192,7 +197,7 @@ const root=location.pathname.replace(/\/$/,'');
 const keyOf=i=>encodeURIComponent(i||'');
 async function action(path,key){const r=await fetch(root+'/queue/'+path+'?key='+keyOf(key),{method:'POST'});const d=await r.json();if(!r.ok)alert(d.error||d.message||'Request failed');await load();return d}
 async function searchRelease(key){const d=await action('search',key);if(!d||!d.releases)return;const lines=d.releases.slice(0,12).map(r=>r.title+' ['+(r.indexer||'unknown')+']').join('\n');alert((d.matched?'Release found':'No exact release match')+' for '+d.title+'\n\n'+(lines||'No releases returned.'))}
-function card(i){const type=i.media_type==='movie'?'Movie':'Series';const state=i.force?'Force-added':'Waiting';const eps=i.episodes&&i.episodes.length?(i.episodes.length+' aired episode'+(i.episodes.length===1?'':'s')):'';let html='<article class="card pending"><div><div class="title">'+esc(i.title||i.key)+'</div><div class="meta"><span class="chip '+esc(i.media_type)+'">'+type+'</span><span class="chip">'+esc(state)+'</span>';if(eps)html+='<span class="chip">'+esc(eps)+'</span>';if(i.year)html+='<span class="chip">'+esc(i.year)+'</span>';if(i.force)html+='<span class="chip force">Manual override</span>';html+='</div><div class="message">Release or air-date verification is still pending.</div></div><div class="actions">';if(!i.force)html+='<button class="primary" onclick="searchRelease('+JSON.stringify(i.key)+')">Request release</button><button class="primary" onclick="action(\'force\','+JSON.stringify(i.key)+')">Force add</button>';html+='<button onclick="if(confirm(\'Remove this item from the monitor queue?\'))action(\'remove\','+JSON.stringify(i.key)+')">Remove</button></div></article>';return html}
+function card(i){const type=i.media_type==='movie'?'Movie':'Series';const state=i.force?'Force-added':'Waiting';const missing=i.media_type==='series'&&i.episodes?.length?i.episodes.map(e=>'S'+String(e.season).padStart(2,'0')+'E'+String(e.episode).padStart(2,'0')+(e.title?' '+e.title:'')).join(', '):'';const eps=missing?(i.episodes.length+' missing episode'+(i.episodes.length===1?'':'s')):'';let html='<article class="card pending"><div><div class="title">'+esc(i.title||i.key)+'</div><div class="meta"><span class="chip '+esc(i.media_type)+'">'+type+'</span><span class="chip">'+esc(state)+'</span>';if(eps)html+='<span class="chip">'+esc(eps)+'</span>';if(i.year)html+='<span class="chip">'+esc(i.year)+'</span>';if(i.force)html+='<span class="chip force">Manual override</span>';html+='</div><div class="message">'+(missing?'Missing: '+esc(missing):'Release verification is still pending.')+'</div></div><div class="actions">';if(!i.force)html+='<button class="primary" onclick="searchRelease('+JSON.stringify(i.key)+')">Request release</button><button class="primary" onclick="action(\'force\','+JSON.stringify(i.key)+')">Force add</button>';html+='<button onclick="if(confirm(\'Remove this item from the monitor queue?\'))action(\'remove\','+JSON.stringify(i.key)+')">Remove</button></div></article>';return html}
  function calendarCard(i){const when=new Date(i.release);const day=when.toLocaleDateString(undefined,{day:'2-digit'});const month=when.toLocaleDateString(undefined,{month:'short'});return '<article class="calendar-card"><div class="calendar-date"><strong>'+day+'</strong><span>'+month+'</span></div><div><div class="title">'+esc(i.title||i.key)+'</div><div class="message">Home-media release gate is being monitored.</div></div><span class="chip">'+esc(i.media_type)+'</span></article>'}
 async function load(){const box=document.querySelector('#queue');try{const [queueResponse,calendarResponse]=await Promise.all([fetch(root+'/queue'),fetch(root+'/calendar')]);const d=await queueResponse.json();const calendar=await calendarResponse.json();const items=d.items||[];document.querySelector('#total').textContent=items.length;document.querySelector('#pending').textContent=items.filter(i=>!i.ready).length;document.querySelector('#forced').textContent=items.filter(i=>i.force).length;document.querySelector('#updated').textContent='Updated '+new Date().toLocaleTimeString();box.innerHTML=items.length?items.map(card).join(''):'<div class="empty">The monitor queue is clear.</div>';document.querySelector('#calendar').innerHTML=calendar.items?.length?calendar.items.map(calendarCard).join(''):'<div class="empty">No upcoming release dates are currently known.</div>'}catch(e){box.innerHTML='<div class="empty">Queue unavailable. Try refreshing.</div>';document.querySelector('#calendar').innerHTML='<div class="empty">Calendar unavailable.</div>'}}
 load();</script></body></html>`))
