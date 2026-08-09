@@ -41,22 +41,34 @@ const (
 
 type monitorConfig struct{ TMDBAPIKey, File string }
 type monitoredMedia struct {
-	Key, MediaType, Title, StreamID, IMDbID, TMDBID, TVDBID, SourceKey string
-	MediaFolderID                                                      int       `json:"media_folder_id,omitempty"`
-	Year                                                               int32     `json:"year"`
-	Runtime                                                            int       `json:"runtime,omitempty"`
-	Release                                                            time.Time `json:"release"`
-	Ready                                                              bool      `json:"ready"`
-	Force                                                              bool      `json:"force"`
-	Overview, Poster, Backdrop                                         string
-	Genres                                                             []string
-	Episodes                                                           []virtualEpisode
+	Key           string           `json:"key"`
+	MediaType     string           `json:"media_type"`
+	Title         string           `json:"title"`
+	StreamID      string           `json:"stream_id,omitempty"`
+	IMDbID        string           `json:"imdb_id,omitempty"`
+	TMDBID        string           `json:"tmdb_id,omitempty"`
+	TVDBID        string           `json:"tvdb_id,omitempty"`
+	SourceKey     string           `json:"source_key,omitempty"`
+	MediaFolderID int              `json:"media_folder_id,omitempty"`
+	Year          int32            `json:"year,omitempty"`
+	Runtime       int              `json:"runtime,omitempty"`
+	Release       time.Time        `json:"release,omitempty"`
+	Ready         bool             `json:"ready"`
+	Force         bool             `json:"force"`
+	Overview      string           `json:"overview,omitempty"`
+	Poster        string           `json:"poster,omitempty"`
+	Backdrop      string           `json:"backdrop,omitempty"`
+	Genres        []string         `json:"genres,omitempty"`
+	Episodes      []virtualEpisode `json:"episodes,omitempty"`
 }
 type virtualEpisode struct {
-	Season, Episode            int
-	Runtime                    int
-	Title, Overview, Thumbnail string
-	Released                   time.Time
+	Season    int       `json:"season"`
+	Episode   int       `json:"episode"`
+	Runtime   int       `json:"runtime,omitempty"`
+	Title     string    `json:"title"`
+	Overview  string    `json:"overview,omitempty"`
+	Thumbnail string    `json:"thumbnail,omitempty"`
+	Released  time.Time `json:"released,omitempty"`
 }
 type mediaMonitor struct {
 	mu         sync.Mutex
@@ -185,12 +197,16 @@ func loadMonitorConfig(c monitorConfig) (monitorConfig, map[string]monitoredMedi
 		if len(items) > maxMonitoredItems {
 			return monitorConfig{}, nil, fmt.Errorf("monitored queue exceeds %d items", maxMonitoredItems)
 		}
+		duplicateKeys := make(map[string]struct{}, len(items))
+		for _, item := range items {
+			if _, exists := duplicateKeys[item.Key]; exists {
+				return monitorConfig{}, nil, fmt.Errorf("monitored queue contains duplicate key %q", item.Key)
+			}
+			duplicateKeys[item.Key] = struct{}{}
+		}
 		for _, item := range items {
 			if err := validateMonitoredMedia(item); err != nil {
 				return monitorConfig{}, nil, fmt.Errorf("invalid monitored queue item: %w", err)
-			}
-			if _, exists := loaded[item.Key]; exists {
-				return monitorConfig{}, nil, fmt.Errorf("monitored queue contains duplicate key %q", item.Key)
 			}
 			loaded[item.Key] = item
 		}
