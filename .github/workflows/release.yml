@@ -89,8 +89,19 @@ jobs:
              --arg amd64 "$LINUX_AMD64_HASH" \
              --arg arm64 "$LINUX_ARM64_HASH" \
              --arg darwin "$DARWIN_ARM64_HASH" \
-             '.plugins[0].manifest.version = $ver |
-              .plugins[0].checksums_url = ("https://github.com/drondeseries/silo-virtual-library/releases/download/" + $tag + "/checksums.txt") |
+             def control_number:
+               {"ADMIN_FORM_CONTROL_UNSPECIFIED":0,
+                "ADMIN_FORM_CONTROL_TEXT":1,
+                "ADMIN_FORM_CONTROL_TEXTAREA":2,
+                "ADMIN_FORM_CONTROL_PASSWORD":3,
+                "ADMIN_FORM_CONTROL_NUMBER":4,
+                "ADMIN_FORM_CONTROL_SWITCH":5,
+                "ADMIN_FORM_CONTROL_SELECT":6,
+                "ADMIN_FORM_CONTROL_MULTI_SELECT":7}[.];
+             .plugins[0].manifest.version = $ver |
+             (.plugins[0].manifest.global_config_schema[]?.admin_form.fields[]?.control) |=
+               (if type == "string" then control_number else . end) |
+               .plugins[0].checksums_url = ("https://github.com/drondeseries/silo-virtual-library/releases/download/" + $tag + "/checksums.txt") |
               .plugins[0].binaries["linux/amd64"].url = ("https://github.com/drondeseries/silo-virtual-library/releases/download/" + $tag + "/plugin-linux-amd64") |
               .plugins[0].binaries["linux/amd64"].checksum = $amd64 |
               .plugins[0].binaries["linux/arm64"].url = ("https://github.com/drondeseries/silo-virtual-library/releases/download/" + $tag + "/plugin-linux-arm64") |

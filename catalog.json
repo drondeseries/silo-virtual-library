@@ -112,7 +112,7 @@
                   "key": "movie_library_id",
                   "label": "Movies Library",
                   "description": "Destination Silo Movies library. Need one? Create it at [Settings -> Libraries](/admin/libraries) and use the \"Add Virtual\" button on the Folders tab — no local storage required.",
-                  "control": "ADMIN_FORM_CONTROL_SELECT",
+                  "control": 6,
                   "dynamic_options": true,
                   "required": false
                 },
@@ -120,7 +120,7 @@
                   "key": "series_library_id",
                   "label": "Series Library",
                   "description": "Destination Silo Series library. Need one? Create it at [Settings -> Libraries](/admin/libraries) and use the \"Add Virtual\" button on the Folders tab — no local storage required.",
-                  "control": "ADMIN_FORM_CONTROL_SELECT",
+                  "control": 6,
                   "dynamic_options": true,
                   "required": false
                 },
@@ -128,7 +128,7 @@
                   "key": "manifest_url",
                   "label": "Manifest URL",
                   "description": "Full streaming provider manifest URL (e.g. AIOStreams, StreamNZB, or any Stremio-compatible addon). Must include the full tokenized path ending in /manifest.json.",
-                  "control": "ADMIN_FORM_CONTROL_PASSWORD",
+                  "control": 3,
                   "placeholder": "https://…/manifest.json",
                   "required": true,
                   "secret": true
@@ -137,27 +137,27 @@
                   "key": "allow_insecure_http",
                   "label": "Allow local HTTP",
                   "description": "Allow plain HTTP only for localhost, .local, single-label Docker/service names, or private IPs. HTTPS remains the default.",
-                  "control": "ADMIN_FORM_CONTROL_SWITCH"
+                  "control": 5
                 },
                 {
                   "key": "cache_ttl_minutes",
                   "label": "Candidate Cache TTL (minutes)",
                   "description": "How long stream candidates are cached before re-fetching from the provider (1–10080 minutes). Lower = fresher results, higher = faster playback.",
-                  "control": "ADMIN_FORM_CONTROL_NUMBER",
+                  "control": 4,
                   "placeholder": "10"
                 },
                 {
                   "key": "indexer_rss_url",
                   "label": "Prowlarr URL",
                   "description": "Optional Prowlarr base URL for release monitoring. If Silo and Prowlarr run in Docker on the same host, use the container name (e.g. http://prowlarr:9696) to bypass auth gates. Leave blank to skip release monitoring.",
-                  "control": "ADMIN_FORM_CONTROL_TEXT",
+                  "control": 1,
                   "placeholder": "https://prowlarr.example.com"
                 },
                 {
                   "key": "indexer_api_key",
                   "label": "Prowlarr API Key",
                   "description": "API key for your Prowlarr instance. Leave blank if not required.",
-                  "control": "ADMIN_FORM_CONTROL_PASSWORD",
+                  "control": 3,
                   "secret": true,
                   "placeholder": "Optional API key"
                 },
@@ -165,14 +165,14 @@
                   "key": "indexer_rss_check_minutes",
                   "label": "Search Check Interval (minutes)",
                   "description": "How often to check Prowlarr for new releases (minimum 15 minutes, maximum 1 week).",
-                  "control": "ADMIN_FORM_CONTROL_NUMBER",
+                  "control": 4,
                   "placeholder": "15"
                 },
                 {
                   "key": "tmdb_api_key",
                   "label": "TMDB API Token",
                   "description": "TMDB API key (v3) or bearer token (v4) for accurate release-date detection. Without it, movies use a conservative 90-day theatrical window.",
-                  "control": "ADMIN_FORM_CONTROL_PASSWORD",
+                  "control": 3,
                   "secret": true,
                   "placeholder": "eyJhbG... or v3 api key"
                 },
@@ -180,20 +180,20 @@
                   "key": "monitor_file",
                   "label": "Monitored Queue File",
                   "description": "File path for persisting the monitored media queue. Defaults to .silo-virtual-library-monitored.json in the plugin work directory.",
-                  "control": "ADMIN_FORM_CONTROL_TEXT",
+                  "control": 1,
                   "placeholder": ".silo-virtual-library-monitored.json"
                 },
                 {
                   "key": "enable_quality_profiles",
                   "label": "Enable Quality Profiles",
                   "description": "Enable quality-based stream filtering. Each media gets a profile picker during playback.",
-                  "control": "ADMIN_FORM_CONTROL_SWITCH"
+                  "control": 5
                 },
                 {
                   "key": "quality_preset",
                   "label": "Quality Profile Preset",
                   "description": "Choose a starting profile set. Custom keeps the JSON editor below available for advanced matching.",
-                  "control": "ADMIN_FORM_CONTROL_SELECT",
+                  "control": 6,
                   "options": [
                     {
                       "value": "custom",
@@ -233,7 +233,7 @@
                   "key": "quality_profiles",
                   "label": "Quality Profiles",
                   "description": "One profile per label. Fields: label (required), resolution (2160p/1080p/720p/480p), hdr, exclude_hdr (use * to require SDR), codec_video, codec_audio, include_regex, exclude_regex, preferred_order.",
-                  "control": "ADMIN_FORM_CONTROL_TEXTAREA",
+                  "control": 2,
                   "rows": 6,
                   "placeholder": "[\n  {\"label\": \"4K DV\",  \"resolution\": \"2160p\", \"hdr\": \"dv\"},\n  {\"label\": \"1080p\",  \"resolution\": \"1080p\"},\n  {\"label\": \"No Cam\", \"exclude_regex\": \"(?i)cam|ts|hdcam\"}\n]"
                 },
@@ -241,7 +241,7 @@
                   "key": "fallback_to_any_stream",
                   "label": "Fallback to Any Stream",
                   "description": "Return 1 stream if no profiles match.",
-                  "control": "ADMIN_FORM_CONTROL_SWITCH"
+                  "control": 5
                 }
               ],
               "submit_label": "Save streaming provider connection"
