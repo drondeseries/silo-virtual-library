@@ -39,7 +39,13 @@ const (
 	maxMonitorKeyBytes   = 512
 )
 
-type monitorConfig struct{ TMDBAPIKey, File string }
+type monitorConfig struct {
+	TMDBAPIKey        string
+	File              string
+	ProwlarrIndexFile string
+	FilterProwlarr    bool
+	Quality           QualityConfig
+}
 type monitoredMedia struct {
 	Key           string           `json:"key"`
 	MediaType     string           `json:"media_type"`
@@ -100,13 +106,19 @@ func (m *mediaMonitor) prowlarrMatch(item monitoredMedia) bool {
 	if c == nil {
 		return false
 	}
-	return c.Match(item)
+	if c.URL() == "" {
+		return false
+	}
+	m.mu.Lock()
+	quality := m.config.Quality
+	m.mu.Unlock()
+	return c.MatchWithQuality(item, quality)
 }
 
 // configureProwlarr sets up the Prowlarr search client with the first
 // non-empty URL from the list. Multiple URLs / per-indexer discovery are
 // no longer needed — /api/v1/search covers all indexers in one request.
-func (m *mediaMonitor) configureProwlarr(urls, apiKey string, intervalMinutes int) {
+func (m *mediaMonitor) configureProwlarr(urls, apiKey string, intervalMinutes int, indexFile string) error {
 	firstURL := ""
 	for _, u := range strings.FieldsFunc(urls, func(r rune) bool { return r == '\n' || r == ',' }) {
 		u = strings.TrimSpace(u)
@@ -121,6 +133,7 @@ func (m *mediaMonitor) configureProwlarr(urls, apiKey string, intervalMinutes in
 	}
 	m.mu.Unlock()
 	m.prowlarr.Configure(firstURL, apiKey, intervalMinutes)
+	return m.prowlarr.ConfigureIndexFile(indexFile)
 }
 
 // prowlarrClient returns the Prowlarr search client, or a new empty one for Validate.
@@ -160,7 +173,7 @@ func newMediaMonitor(resolver streamResolver, logger hclog.Logger) *mediaMonitor
 	return &mediaMonitor{
 		resolver:   resolver,
 		logger:     logger,
-		config:     monitorConfig{File: ".silo-virtual-library-monitored.json"},
+		config:     monitorConfig{File: ".silo-virtual-library-monitored.json", ProwlarrIndexFile: ".silo-virtual-library-prowlarr-index.json"},
 		items:      map[string]monitoredMedia{},
 		prowlarr:   nil,
 		registered: map[string]struct{}{},
@@ -178,6 +191,9 @@ func (m *mediaMonitor) Configure(c monitorConfig) error {
 func loadMonitorConfig(c monitorConfig) (monitorConfig, map[string]monitoredMedia, error) {
 	if c.File == "" {
 		c.File = ".silo-virtual-library-monitored.json"
+	}
+	if c.ProwlarrIndexFile == "" {
+		c.ProwlarrIndexFile = ".silo-virtual-library-prowlarr-index.json"
 	}
 	loaded := make(map[string]monitoredMedia)
 	file, err := os.Open(c.File)
@@ -405,6 +421,10 @@ func (m *mediaMonitor) evaluate(ctx context.Context, item monitoredMedia) (monit
 			return item, "Movie force-added by administrator", nil
 		}
 		if release.After(now) {
+			if m.prowlarrMatch(item) {
+				item.Ready = true
+				return item, "Movie release confirmed by indexer search", nil
+			}
 			item.Ready = false
 			return item, "Movie is not released for home media yet; monitoring indexer search", nil
 		}
@@ -413,6 +433,9 @@ func (m *mediaMonitor) evaluate(ctx context.Context, item monitoredMedia) (monit
 		aired := item.Episodes
 		if !item.Force {
 			aired = airedEpisodes(item.Episodes, now)
+			if matched := m.prowlarrMatchedEpisodes(item, item.Episodes); len(matched) > 0 {
+				aired = appendUniqueEpisodes(aired, matched)
+			}
 		} else {
 			valid := make([]virtualEpisode, 0, len(item.Episodes))
 			for _, episode := range episodeList(item.Episodes) {
@@ -431,6 +454,41 @@ func (m *mediaMonitor) evaluate(ctx context.Context, item monitoredMedia) (monit
 	}
 	item.Ready = true
 	return item, "Movie is available for home media", nil
+}
+
+func (m *mediaMonitor) prowlarrMatchedEpisodes(item monitoredMedia, episodes []virtualEpisode) []virtualEpisode {
+	m.mu.Lock()
+	c := m.prowlarr
+	quality := m.config.Quality
+	m.mu.Unlock()
+	if c == nil {
+		return nil
+	}
+	matched := make([]virtualEpisode, 0, len(episodes))
+	for _, episode := range episodes {
+		if episode.Season <= 0 || episode.Episode <= 0 {
+			continue
+		}
+		if c.MatchEpisodeWithQuality(item, episode, quality) {
+			matched = append(matched, episode)
+		}
+	}
+	return matched
+}
+
+func appendUniqueEpisodes(existing, additions []virtualEpisode) []virtualEpisode {
+	seen := make(map[string]struct{}, len(existing)+len(additions))
+	for _, episode := range existing {
+		seen[fmt.Sprintf("%d:%d", episode.Season, episode.Episode)] = struct{}{}
+	}
+	for _, episode := range additions {
+		key := fmt.Sprintf("%d:%d", episode.Season, episode.Episode)
+		if _, ok := seen[key]; !ok {
+			existing = append(existing, episode)
+			seen[key] = struct{}{}
+		}
+	}
+	return existing
 }
 
 func episodeList(episodes []virtualEpisode) []virtualEpisode {

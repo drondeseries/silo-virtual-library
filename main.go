@@ -819,6 +819,7 @@ func (s *runtimeServer) Configure(_ context.Context, request *pb.ConfigureReques
 		}
 
 		monitorFile, _ := entry.GetValue().AsMap()["monitor_file"].(string)
+		prowlarrIndexFile, _ := entry.GetValue().AsMap()["prowlarr_index_file"].(string)
 		movieLibraryID, err := configuredFolderID(entry.GetValue().AsMap()["movie_library_id"])
 		if err != nil {
 			return nil, err
@@ -837,7 +838,7 @@ func (s *runtimeServer) Configure(_ context.Context, request *pb.ConfigureReques
 				hclog.New(&hclog.LoggerOptions{Name: "silo-virtual-library"}).Warn("library configuration needs attention", "error", err)
 			}
 		}
-		stagedMonitorConfig, monitoredItems, err := loadMonitorConfig(monitorConfig{TMDBAPIKey: strings.TrimSpace(tmdbAPIKey), File: strings.TrimSpace(monitorFile)})
+		stagedMonitorConfig, monitoredItems, err := loadMonitorConfig(monitorConfig{TMDBAPIKey: strings.TrimSpace(tmdbAPIKey), File: strings.TrimSpace(monitorFile), ProwlarrIndexFile: strings.TrimSpace(prowlarrIndexFile), FilterProwlarr: qc.EnableProfiles, Quality: qc})
 		if err != nil {
 			return nil, err
 		}
@@ -863,7 +864,9 @@ func (s *runtimeServer) Configure(_ context.Context, request *pb.ConfigureReques
 		s.library = library
 		// Support multiple RSS feed URLs separated by newlines so users
 		// can add every Prowlarr indexer. One shared key and interval.
-		s.monitor.configureProwlarr(strings.TrimSpace(rssURL), strings.TrimSpace(rssKey), int(rssMinutes))
+		if err := s.monitor.configureProwlarr(strings.TrimSpace(rssURL), strings.TrimSpace(rssKey), int(rssMinutes), stagedMonitorConfig.ProwlarrIndexFile); err != nil {
+			return nil, err
+		}
 		s.monitor.applyConfiguration(stagedMonitorConfig, monitoredItems, library, true)
 		return &pb.ConfigureResponse{}, nil
 	}

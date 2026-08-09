@@ -8,7 +8,10 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,6 +23,8 @@ const (
 	minSearchCheckMinutes     = 15
 	maxSearchCheckMinutes     = 10080
 	maxSearchBodyBytes        = 8 << 20
+	maxProwlarrIndexReleases  = 20000
+	prowlarrIndexRetention    = 14 * 24 * time.Hour
 )
 
 var searchHTTPClient = newRestrictedRedirectHTTPClient(20 * time.Second)
@@ -50,6 +55,7 @@ type prowlarrSearchClient struct {
 	lastFetch time.Time
 	lastErr   error
 	releases  []prowlarrRelease
+	indexFile string
 }
 
 func newProwlarrSearchClient(client *http.Client) *prowlarrSearchClient {
@@ -89,6 +95,37 @@ func (c *prowlarrSearchClient) Configure(baseURL, apiKey string, intervalMinutes
 	c.interval = newInterval
 }
 
+func (c *prowlarrSearchClient) ConfigureIndexFile(path string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	path = strings.TrimSpace(path)
+	if path == "" {
+		path = ".silo-virtual-library-prowlarr-index.json"
+	}
+	c.indexFile = path
+	file, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("open Prowlarr index: %w", err)
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, maxSearchBodyBytes+1))
+	if err != nil {
+		return fmt.Errorf("read Prowlarr index: %w", err)
+	}
+	if len(data) > maxSearchBodyBytes {
+		return fmt.Errorf("Prowlarr index exceeds %d bytes", maxSearchBodyBytes)
+	}
+	var releases []prowlarrRelease
+	if err := json.Unmarshal(data, &releases); err != nil {
+		return fmt.Errorf("decode Prowlarr index: %w", err)
+	}
+	c.releases = pruneProwlarrReleases(releases, time.Now())
+	return nil
+}
+
 func (c *prowlarrSearchClient) searchURL() (string, error) {
 	return c.searchURLForQuery("")
 }
@@ -106,7 +143,10 @@ func (c *prowlarrSearchClient) searchURLForQuery(query string) (string, error) {
 		return "", fmt.Errorf("invalid Prowlarr URL: %w", err)
 	}
 	q := u.Query()
-	q.Set("limit", "200")
+	q.Set("limit", "1000")
+	q.Del("categories")
+	q.Add("categories", "2000")
+	q.Add("categories", "5000")
 	if strings.TrimSpace(query) != "" {
 		q.Set("query", query)
 	}
@@ -187,11 +227,77 @@ func (c *prowlarrSearchClient) refresh(ctx context.Context) error {
 		return err
 	}
 	c.mu.Lock()
-	c.releases = releases
+	merged := mergeProwlarrReleases(c.releases, releases, time.Now())
+	c.releases = merged
 	c.lastFetch = time.Now()
 	c.lastErr = nil
+	indexFile := c.indexFile
 	c.mu.Unlock()
+	if indexFile != "" {
+		if err := saveProwlarrIndex(indexFile, merged); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func releaseKey(release prowlarrRelease) string {
+	if release.GUID != "" {
+		return "guid:" + release.GUID
+	}
+	if release.DownloadURL != "" {
+		return "download:" + release.DownloadURL
+	}
+	return release.Indexer + "\x00" + release.Title + "\x00" + release.PublishDate
+}
+
+func mergeProwlarrReleases(existing, incoming []prowlarrRelease, now time.Time) []prowlarrRelease {
+	byKey := make(map[string]prowlarrRelease, len(existing)+len(incoming))
+	for _, release := range append(append([]prowlarrRelease(nil), existing...), incoming...) {
+		byKey[releaseKey(release)] = release
+	}
+	merged := make([]prowlarrRelease, 0, len(byKey))
+	for _, release := range byKey {
+		if release.PublishDate != "" {
+			if published, err := time.Parse(time.RFC3339, release.PublishDate); err == nil && now.Sub(published) > prowlarrIndexRetention {
+				continue
+			}
+		}
+		merged = append(merged, release)
+	}
+	sort.SliceStable(merged, func(i, j int) bool { return merged[i].PublishDate > merged[j].PublishDate })
+	if len(merged) > maxProwlarrIndexReleases {
+		merged = merged[:maxProwlarrIndexReleases]
+	}
+	return merged
+}
+
+func pruneProwlarrReleases(releases []prowlarrRelease, now time.Time) []prowlarrRelease {
+	return mergeProwlarrReleases(nil, releases, now)
+}
+
+func saveProwlarrIndex(path string, releases []prowlarrRelease) error {
+	data, err := json.MarshalIndent(releases, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode Prowlarr index: %w", err)
+	}
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".silo-prowlarr-index-*.tmp")
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	defer os.Remove(name)
+	if _, err = tmp.Write(append(data, '\n')); err == nil {
+		err = tmp.Sync()
+	}
+	if closeErr := tmp.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return err
+	}
+	return os.Rename(name, path)
 }
 
 func parseProwlarrSearch(r io.Reader) ([]prowlarrRelease, error) {
@@ -240,20 +346,59 @@ func normalizeReleaseTitle(raw string) (title string, year int) {
 // corresponds to the monitored media. Prefers IMDb/TMDB/TVDB IDs,
 // falling back to normalized title+year comparison.
 func (c *prowlarrSearchClient) Match(item monitoredMedia) bool {
+	return c.MatchWithQuality(item, QualityConfig{})
+}
+
+func (c *prowlarrSearchClient) MatchWithQuality(item monitoredMedia, quality QualityConfig) bool {
 	c.mu.Lock()
 	releases := c.releases
 	c.mu.Unlock()
 	if len(releases) == 0 {
 		return false
 	}
-	return matchProwlarrReleases(releases, item)
+	return matchProwlarrReleasesWithQuality(releases, item, quality)
 }
 
 func (c *prowlarrSearchClient) SearchItem(ctx context.Context, item monitoredMedia) ([]prowlarrRelease, error) {
 	return c.search(ctx, item)
 }
 
+func (c *prowlarrSearchClient) MatchEpisodeWithQuality(item monitoredMedia, episode virtualEpisode, quality QualityConfig) bool {
+	c.mu.Lock()
+	if c.url == "" {
+		c.mu.Unlock()
+		return false
+	}
+	releases := c.releases
+	c.mu.Unlock()
+	wantTitle, _ := normalizeReleaseTitle(item.Title)
+	if wantTitle == "" {
+		return false
+	}
+	wantIMDb, _ := strconv.ParseInt(item.IMDbID, 10, 64)
+	wantTMDB, _ := strconv.ParseInt(item.TMDBID, 10, 64)
+	wantTVDB, _ := strconv.ParseInt(item.TVDBID, 10, 64)
+	episodePattern := regexp.MustCompile(fmt.Sprintf(`(?i)(?:s%02de%02d|%dx%02d|season[ ._-]*%d[ ._-]*episode[ ._-]*%d)`, episode.Season, episode.Episode, episode.Season, episode.Episode, episode.Season, episode.Episode))
+	for _, release := range releases {
+		if quality.EnableProfiles && !releaseMatchesQuality(release, quality.Profiles) {
+			continue
+		}
+		if wantIMDb > 0 && release.IMDbID > 0 && wantIMDb != release.IMDbID || wantTMDB > 0 && release.TMDBID > 0 && wantTMDB != release.TMDBID || wantTVDB > 0 && release.TVDBID > 0 && wantTVDB != release.TVDBID {
+			continue
+		}
+		gotTitle, _ := normalizeReleaseTitle(release.Title)
+		if (strings.Contains(gotTitle, wantTitle) || strings.Contains(wantTitle, gotTitle)) && episodePattern.MatchString(release.Title) {
+			return true
+		}
+	}
+	return false
+}
+
 func matchProwlarrReleases(releases []prowlarrRelease, item monitoredMedia) bool {
+	return matchProwlarrReleasesWithQuality(releases, item, QualityConfig{})
+}
+
+func matchProwlarrReleasesWithQuality(releases []prowlarrRelease, item monitoredMedia, quality QualityConfig) bool {
 	wantTitle, titleYear := normalizeReleaseTitle(item.Title)
 	wantYear := item.Year
 	if wantYear == 0 && titleYear != 0 {
@@ -267,6 +412,9 @@ func matchProwlarrReleases(releases []prowlarrRelease, item monitoredMedia) bool
 	wantTVDB, _ := strconv.ParseInt(item.TVDBID, 10, 64)
 
 	for _, r := range releases {
+		if quality.EnableProfiles && !releaseMatchesQuality(r, quality.Profiles) {
+			continue
+		}
 		// Fast path: direct ID match.
 		if wantIMDb > 0 && r.IMDbID > 0 && wantIMDb == r.IMDbID {
 			return true
@@ -294,6 +442,26 @@ func matchProwlarrReleases(releases []prowlarrRelease, item monitoredMedia) bool
 			continue
 		}
 		return true
+	}
+	return false
+}
+
+func releaseMatchesQuality(release prowlarrRelease, profiles []QualityProfile) bool {
+	if len(profiles) == 0 {
+		return false
+	}
+	candidate := StreamCandidate{Name: release.Title, Title: release.Title, URL: release.DownloadURL}
+	parseStreamDetails(&candidate)
+	return slicesContainsFunc(profiles, func(profile QualityProfile) bool {
+		return matchProfile(candidate, profile)
+	})
+}
+
+func slicesContainsFunc[T any](values []T, predicate func(T) bool) bool {
+	for _, value := range values {
+		if predicate(value) {
+			return true
+		}
 	}
 	return false
 }

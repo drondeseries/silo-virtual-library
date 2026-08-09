@@ -224,7 +224,7 @@ func TestForcedMovieCanPassReleaseGate(t *testing.T) {
 	}
 }
 
-func TestFutureMovieCannotBeReleasedByIndexerMatch(t *testing.T) {
+func TestFutureMovieCanBeReleasedByIndexerMatch(t *testing.T) {
 	metadata := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
@@ -246,6 +246,7 @@ func TestFutureMovieCannotBeReleasedByIndexerMatch(t *testing.T) {
 	monitor := newMediaMonitor(nil, hclog.NewNullLogger())
 	monitor.Configure(monitorConfig{TMDBAPIKey: "test-key", File: filepath.Join(t.TempDir(), "queue.json")})
 	monitor.prowlarr = newProwlarrSearchClient(nil)
+	monitor.prowlarr.Configure("https://prowlarr.example.com", "", 15)
 	monitor.prowlarr.releases = []prowlarrRelease{{TMDBID: 99}}
 	item, message, err := monitor.evaluate(context.Background(), monitoredMedia{
 		MediaType: "movie",
@@ -256,8 +257,8 @@ func TestFutureMovieCannotBeReleasedByIndexerMatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if item.Ready {
-		t.Fatalf("future movie became ready: %s", message)
+	if !item.Ready {
+		t.Fatalf("future movie was not released by indexer match: %s", message)
 	}
 }
 
