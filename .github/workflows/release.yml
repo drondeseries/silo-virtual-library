@@ -88,7 +88,7 @@ jobs:
              --arg tag "$TAG" \
              --arg amd64 "$LINUX_AMD64_HASH" \
              --arg arm64 "$LINUX_ARM64_HASH" \
-             --arg darwin "$DARWIN_ARM64_HASH" \
+             --arg darwin "$DARWIN_ARM64_HASH" '
              def control_number:
                {"ADMIN_FORM_CONTROL_UNSPECIFIED":0,
                 "ADMIN_FORM_CONTROL_TEXT":1,
@@ -107,7 +107,7 @@ jobs:
               .plugins[0].binaries["linux/arm64"].url = ("https://github.com/drondeseries/silo-virtual-library/releases/download/" + $tag + "/plugin-linux-arm64") |
               .plugins[0].binaries["linux/arm64"].checksum = $arm64 |
               .plugins[0].binaries["darwin/arm64"].url = ("https://github.com/drondeseries/silo-virtual-library/releases/download/" + $tag + "/plugin-darwin-arm64") |
-              .plugins[0].binaries["darwin/arm64"].checksum = $darwin' catalog.json > catalog.tmp && mv catalog.tmp catalog.json
+               .plugins[0].binaries["darwin/arm64"].checksum = $darwin' catalog.json > catalog.tmp && mv catalog.tmp catalog.json
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
