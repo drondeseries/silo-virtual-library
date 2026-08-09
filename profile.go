@@ -26,15 +26,48 @@ type QualityProfile struct {
 	CodecVideo     string `json:"codec_video"`
 	CodecAudio     string `json:"codec_audio"`
 	HDR            string `json:"hdr"`
+	ExcludeHDR     string `json:"exclude_hdr"`
 
 	include *regexp.Regexp
 	exclude *regexp.Regexp
 }
 
 type QualityConfig struct {
+	Preset              string           `json:"quality_preset"`
 	EnableProfiles      bool             `json:"enable_quality_profiles"`
 	Profiles            []QualityProfile `json:"quality_profiles"`
 	FallbackToAnyStream bool             `json:"fallback_to_any_stream"`
+}
+
+const defaultQualityPreset = "custom"
+
+// qualityPresetProfiles keeps the common choices understandable in the admin
+// form while leaving regex-level control available through Custom.
+func qualityPresetProfiles(preset string) []QualityProfile {
+	switch strings.ToLower(strings.TrimSpace(preset)) {
+	case "balanced":
+		return []QualityProfile{{Label: "1080p", Resolution: "1080p", PreferredOrder: 1}}
+	case "4k-hdr":
+		return []QualityProfile{{Label: "4K HDR", Resolution: "2160p", HDR: "hdr", PreferredOrder: 1}, {Label: "1080p", Resolution: "1080p", PreferredOrder: 2}}
+	case "4k-dolby-vision":
+		return []QualityProfile{{Label: "4K Dolby Vision", Resolution: "2160p", HDR: "dv", PreferredOrder: 1}, {Label: "1080p", Resolution: "1080p", PreferredOrder: 2}}
+	case "no-dolby-vision":
+		return []QualityProfile{{Label: "4K HDR10", Resolution: "2160p", ExcludeHDR: "dv", ExcludeRegex: `(?i)(dolby[ ._-]*vision|\bdv\b|dovi)`, PreferredOrder: 1}, {Label: "1080p", Resolution: "1080p", ExcludeHDR: "dv", ExcludeRegex: `(?i)(dolby[ ._-]*vision|\bdv\b|dovi)`, PreferredOrder: 2}}
+	case "no-hdr":
+		return []QualityProfile{{Label: "4K SDR", Resolution: "2160p", ExcludeHDR: "*", ExcludeRegex: `(?i)(hdr|dolby[ ._-]*vision|\bdv\b|dovi|hlg)`, PreferredOrder: 1}, {Label: "1080p SDR", Resolution: "1080p", ExcludeHDR: "*", ExcludeRegex: `(?i)(hdr|dolby[ ._-]*vision|\bdv\b|dovi|hlg)`, PreferredOrder: 2}}
+	case "compatibility":
+		return []QualityProfile{{Label: "1080p Compatible", Resolution: "1080p", CodecVideo: "h264", CodecAudio: "aac", PreferredOrder: 1}, {Label: "720p Compatible", Resolution: "720p", CodecVideo: "h264", CodecAudio: "aac", PreferredOrder: 2}}
+	case "anime":
+		return []QualityProfile{{Label: "Anime 1080p", Resolution: "1080p", IncludeRegex: `(?i)(anime|web-dl|web)`, PreferredOrder: 1}, {Label: "Anime 720p", Resolution: "720p", IncludeRegex: `(?i)(anime|web-dl|web)`, PreferredOrder: 2}}
+	default:
+		return nil
+	}
+}
+
+func (q *QualityConfig) ApplyPreset() {
+	if profiles := qualityPresetProfiles(q.Preset); len(profiles) > 0 {
+		q.Profiles = profiles
+	}
 }
 
 // decodeQualityProfiles accepts the typed array declared by the plugin
@@ -84,6 +117,7 @@ func (q *QualityConfig) Validate() error {
 			"codec_video": p.CodecVideo,
 			"codec_audio": p.CodecAudio,
 			"hdr":         p.HDR,
+			"exclude_hdr": p.ExcludeHDR,
 		} {
 			if len(value) > maxProfileAttributeBytes {
 				return fmt.Errorf("%s in profile %s exceeds %d bytes", name, p.Label, maxProfileAttributeBytes)

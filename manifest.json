@@ -1,8 +1,14 @@
 {
   "plugin_id": "com.drondeseries.silo-virtual-library",
-  "version": "0.4.65",
+  "version": "0.4.66",
   "silo_api_version": "v1",
   "capabilities": [
+    {
+      "type": "http_routes.v1",
+      "id": "admin-routes",
+      "display_name": "Virtual Library Admin",
+      "description": "Review monitored media and manage release-gate overrides."
+    },
     {
       "type": "virtual_stream_provider.v1",
       "id": "stremio-stream-resolver",
@@ -46,6 +52,23 @@
       "description": "Checks queued media for home release and adds newly aired series episodes."
     }
   ],
+  "http_routes": [
+    {
+      "id": "admin",
+      "method": "GET",
+      "path": "/admin/virtual-library",
+      "access": "admin",
+      "navigable": true,
+      "navigation_label": "Virtual Library",
+      "navigation_kind": "admin"
+    },
+    {
+      "id": "admin-api",
+      "method": "*",
+      "path": "/admin/virtual-library/*",
+      "access": "admin"
+    }
+  ],
   "presentation": {
     "display_name": "Silo Virtual Library",
     "summary": "Zero-storage virtual playback backed by dynamic streaming provider resolution.",
@@ -78,7 +101,7 @@
       "key": "streaming",
       "title": "streaming provider",
       "description": "Connection to the configured streaming provider Stremio addon.",
-      "json_schema": "{\"type\": \"object\", \"properties\": {\"manifest_url\": {\"type\": \"string\", \"format\": \"uri\", \"maxLength\": 4096}, \"movie_library_id\": {\"type\": \"integer\", \"minimum\": 1, \"default\": 1}, \"series_library_id\": {\"type\": \"integer\", \"minimum\": 1, \"default\": 2}, \"tmdb_api_key\": {\"type\": \"string\", \"maxLength\": 4096}, \"monitor_file\": {\"type\": \"string\", \"maxLength\": 4096, \"default\": \".silo-virtual-library-monitored.json\"}, \"allow_insecure_http\": {\"type\": \"boolean\", \"default\": false}, \"cache_ttl_minutes\": {\"type\": \"integer\", \"minimum\": 1, \"maximum\": 10080, \"default\": 10}, \"enable_quality_profiles\": {\"type\": \"boolean\", \"default\": false}, \"quality_profiles\": {\"type\": \"array\", \"maxItems\": 10, \"items\": {\"type\": \"object\", \"properties\": {\"label\": {\"type\": \"string\", \"minLength\": 1, \"maxLength\": 128}, \"resolution\": {\"type\": \"string\", \"maxLength\": 64}, \"include_regex\": {\"type\": \"string\", \"maxLength\": 1024}, \"exclude_regex\": {\"type\": \"string\", \"maxLength\": 1024}, \"preferred_order\": {\"type\": \"integer\", \"minimum\": 0, \"maximum\": 10000}, \"codec_video\": {\"type\": \"string\", \"maxLength\": 64}, \"codec_audio\": {\"type\": \"string\", \"maxLength\": 64}, \"hdr\": {\"type\": \"string\", \"maxLength\": 64}}, \"required\": [\"label\"], \"additionalProperties\": false}}, \"fallback_to_any_stream\": {\"type\": \"boolean\", \"default\": false}, \"indexer_rss_url\": {\"type\": \"string\", \"format\": \"uri\", \"maxLength\": 4096, \"description\": \"Your Prowlarr base URL (e.g. https://prowlarr.example.com). Searches all enabled indexers in one request.\"}, \"indexer_api_key\": {\"type\": \"string\", \"maxLength\": 4096, \"description\": \"API key for your Prowlarr instance. Leave blank if not required.\"}, \"indexer_rss_check_minutes\": {\"type\": \"integer\", \"minimum\": 15, \"maximum\": 10080, \"default\": 15, \"description\": \"How often to check Prowlarr for new releases. Minimum 15 minutes.\"}}, \"required\": [\"manifest_url\"], \"additionalProperties\": false}",
+      "json_schema": "{\"type\":\"object\",\"properties\":{\"manifest_url\":{\"type\":\"string\",\"format\":\"uri\",\"maxLength\":4096},\"movie_library_id\":{\"type\":\"integer\",\"minimum\":1,\"default\":1},\"series_library_id\":{\"type\":\"integer\",\"minimum\":1,\"default\":2},\"tmdb_api_key\":{\"type\":\"string\",\"maxLength\":4096},\"monitor_file\":{\"type\":\"string\",\"maxLength\":4096,\"default\":\".silo-virtual-library-monitored.json\"},\"allow_insecure_http\":{\"type\":\"boolean\",\"default\":false},\"cache_ttl_minutes\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":10080,\"default\":10},\"enable_quality_profiles\":{\"type\":\"boolean\",\"default\":false},\"quality_profiles\":{\"type\":\"array\",\"maxItems\":10,\"items\":{\"type\":\"object\",\"properties\":{\"label\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":128},\"resolution\":{\"type\":\"string\",\"maxLength\":64},\"include_regex\":{\"type\":\"string\",\"maxLength\":1024},\"exclude_regex\":{\"type\":\"string\",\"maxLength\":1024},\"preferred_order\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":10000},\"codec_video\":{\"type\":\"string\",\"maxLength\":64},\"codec_audio\":{\"type\":\"string\",\"maxLength\":64},\"hdr\":{\"type\":\"string\",\"maxLength\":64},\"exclude_hdr\":{\"type\":\"string\",\"maxLength\":64}},\"required\":[\"label\"],\"additionalProperties\":false}},\"fallback_to_any_stream\":{\"type\":\"boolean\",\"default\":false},\"indexer_rss_url\":{\"type\":\"string\",\"format\":\"uri\",\"maxLength\":4096,\"description\":\"Your Prowlarr base URL (e.g. https://prowlarr.example.com). Searches all enabled indexers in one request.\"},\"indexer_api_key\":{\"type\":\"string\",\"maxLength\":4096,\"description\":\"API key for your Prowlarr instance. Leave blank if not required.\"},\"indexer_rss_check_minutes\":{\"type\":\"integer\",\"minimum\":15,\"maximum\":10080,\"default\":15,\"description\":\"How often to check Prowlarr for new releases. Minimum 15 minutes.\"},\"quality_preset\":{\"type\":\"string\",\"enum\":[\"custom\",\"balanced\",\"4k-hdr\",\"4k-dolby-vision\",\"no-dolby-vision\",\"no-hdr\",\"compatibility\",\"anime\"],\"default\":\"custom\"}},\"required\":[\"manifest_url\"],\"additionalProperties\":false}",
       "required": true,
       "admin_form": {
         "fields": [
@@ -164,9 +187,49 @@
             "control": "ADMIN_FORM_CONTROL_SWITCH"
           },
           {
+            "key": "quality_preset",
+            "label": "Quality Profile Preset",
+            "description": "Choose a starting profile set. Custom keeps the JSON editor below available for advanced matching.",
+            "control": "ADMIN_FORM_CONTROL_SELECT",
+            "options": [
+              {
+                "value": "custom",
+                "label": "Custom"
+              },
+              {
+                "value": "balanced",
+                "label": "Balanced 1080p"
+              },
+              {
+                "value": "4k-hdr",
+                "label": "4K HDR + 1080p"
+              },
+              {
+                "value": "4k-dolby-vision",
+                "label": "4K Dolby Vision + 1080p"
+              },
+              {
+                "value": "no-dolby-vision",
+                "label": "No Dolby Vision"
+              },
+              {
+                "value": "no-hdr",
+                "label": "No HDR (SDR only)"
+              },
+              {
+                "value": "compatibility",
+                "label": "Compatibility"
+              },
+              {
+                "value": "anime",
+                "label": "Anime"
+              }
+            ]
+          },
+          {
             "key": "quality_profiles",
             "label": "Quality Profiles",
-            "description": "One profile per label. Fields: label (required), resolution (2160p/1080p/720p/480p), hdr (dv/hdr10/hdr10+/hdr), codec_video, codec_audio, include_regex, exclude_regex, preferred_order.",
+            "description": "One profile per label. Fields: label (required), resolution (2160p/1080p/720p/480p), hdr, exclude_hdr (use * to require SDR), codec_video, codec_audio, include_regex, exclude_regex, preferred_order.",
             "control": "ADMIN_FORM_CONTROL_TEXTAREA",
             "rows": 6,
             "placeholder": "[\n  {\"label\": \"4K DV\",  \"resolution\": \"2160p\", \"hdr\": \"dv\"},\n  {\"label\": \"1080p\",  \"resolution\": \"1080p\"},\n  {\"label\": \"No Cam\", \"exclude_regex\": \"(?i)cam|ts|hdcam\"}\n]"

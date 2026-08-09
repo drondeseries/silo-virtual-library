@@ -332,8 +332,8 @@ func TestQualityProfiles(t *testing.T) {
 	}
 
 	variants := resolver.GetVariants(ctx, "virtual://movie/tt0133093")
-	if len(variants) != 5 {
-		t.Fatalf("Expected one version per profile plus More results, got %d", len(variants))
+	if len(variants) != 4 {
+		t.Fatalf("Expected one version per profile, got %d", len(variants))
 	}
 	if strings.Contains(variants[0].VirtualURI, "result=") {
 		t.Fatalf("Expected provider-neutral variant URI: %s", variants[0].VirtualURI)
@@ -392,29 +392,52 @@ func TestQualityConfigValidation(t *testing.T) {
 	}
 }
 
+func TestQualityPresetProfiles(t *testing.T) {
+	q := QualityConfig{Preset: "4k-dolby-vision"}
+	q.ApplyPreset()
+	if len(q.Profiles) != 2 || q.Profiles[0].Label != "4K Dolby Vision" || q.Profiles[0].HDR != "dv" {
+		t.Fatalf("preset profiles = %#v", q.Profiles)
+	}
+	custom := QualityConfig{Preset: defaultQualityPreset, Profiles: []QualityProfile{{Label: "My Profile"}}}
+	custom.ApplyPreset()
+	if len(custom.Profiles) != 1 || custom.Profiles[0].Label != "My Profile" {
+		t.Fatalf("custom profiles changed: %#v", custom.Profiles)
+	}
+	noDV := QualityConfig{Preset: "no-dolby-vision"}
+	noDV.ApplyPreset()
+	if len(noDV.Profiles) != 2 || noDV.Profiles[0].Label != "4K HDR10" || noDV.Profiles[0].ExcludeHDR != "dv" {
+		t.Fatalf("no-DV preset profiles = %#v", noDV.Profiles)
+	}
+	if err := noDV.Validate(); err != nil {
+		t.Fatalf("no-DV preset validation: %v", err)
+	}
+	noHDR := QualityConfig{Preset: "no-hdr"}
+	noHDR.ApplyPreset()
+	if len(noHDR.Profiles) != 2 || noHDR.Profiles[0].Label != "4K SDR" || noHDR.Profiles[0].ExcludeHDR != "*" {
+		t.Fatalf("no-HDR preset profiles = %#v", noHDR.Profiles)
+	}
+	if err := noHDR.Validate(); err != nil {
+		t.Fatalf("no-HDR preset validation: %v", err)
+	}
+}
+
 func TestQualityProfilesAlwaysMaterializeConfiguredVariants(t *testing.T) {
 	resolver := &manifestStreamResolver{}
 	resolver.Configure(resolverConfig{Quality: QualityConfig{
 		EnableProfiles: true,
 		Profiles:       []QualityProfile{{Label: "1080p"}},
 	}})
-	if got := resolver.GetConfiguredVariants("virtual://movie/tt0133093"); len(got) != 2 {
-		t.Fatalf("configured variants = %d, want 2 (profile plus More results)", len(got))
+	if got := resolver.GetConfiguredVariants("virtual://movie/tt0133093"); len(got) != 1 {
+		t.Fatalf("configured variants = %d, want 1 profile", len(got))
 	}
 }
 
-func TestProfilesDisabledExposeDefaultAndMoreResults(t *testing.T) {
+func TestProfilesDisabledExposeOnlyCanonicalURL(t *testing.T) {
 	resolver := &manifestStreamResolver{}
 	resolver.Configure(resolverConfig{Quality: QualityConfig{EnableProfiles: false}})
 	variants := resolver.GetConfiguredVariants("virtual://movie/tt0133093")
-	if len(variants) != 2 {
-		t.Fatalf("configured variants = %d, want Default plus More results", len(variants))
-	}
-	if variants[0].Label != "Default" || variants[0].VirtualURI != "virtual://movie/tt0133093" {
-		t.Fatalf("default variant = %#v", variants[0])
-	}
-	if variants[1].Label != "More results…" || !strings.Contains(variants[1].VirtualURI, "results=all") {
-		t.Fatalf("more-results variant = %#v", variants[1])
+	if len(variants) != 0 {
+		t.Fatalf("configured variants = %d, want no variants when profiles are disabled", len(variants))
 	}
 }
 
@@ -493,7 +516,7 @@ func TestCandidateVariantIDDifferentiatesStableSources(t *testing.T) {
 	}
 }
 
-func TestSelectCandidatesRanksResultsAndLimitsProfile(t *testing.T) {
+func TestSelectCandidatesRanksResultsAndProfiles(t *testing.T) {
 	resolver := &manifestStreamResolver{}
 	resolver.Configure(resolverConfig{Quality: QualityConfig{EnableProfiles: true, Profiles: []QualityProfile{
 		{Label: "4K", Resolution: "2160p"},
@@ -513,16 +536,16 @@ func TestSelectCandidatesRanksResultsAndLimitsProfile(t *testing.T) {
 		t.Fatalf("all candidates order = %#v, want 2160p,1080p,720p", all)
 	}
 	defaultResult := resolver.SelectCandidates("virtual://movie/tt1", candidates)
-	if len(defaultResult) != 1 || defaultResult[0].Resolution != "2160p" {
-		t.Fatalf("default candidates = %#v, want one ranked 2160p candidate", defaultResult)
+	if len(defaultResult) != 3 || defaultResult[0].Resolution != "2160p" {
+		t.Fatalf("default candidates = %#v, want ranked failover candidates", defaultResult)
 	}
 	fallback := resolver.SelectCandidates("virtual://movie/tt1?profile=Unknown", candidates)
-	if len(fallback) != 1 || fallback[0].Resolution != "2160p" {
-		t.Fatalf("fallback candidates = %#v, want one ranked 2160p candidate", fallback)
+	if len(fallback) != 3 || fallback[0].Resolution != "2160p" {
+		t.Fatalf("fallback candidates = %#v, want ranked failover candidates", fallback)
 	}
 	knownFallback := resolver.SelectCandidates("virtual://movie/tt1?profile=SD", candidates)
-	if len(knownFallback) != 1 || knownFallback[0].Resolution != "2160p" {
-		t.Fatalf("known-profile fallback candidates = %#v, want one ranked 2160p candidate", knownFallback)
+	if len(knownFallback) != 3 || knownFallback[0].Resolution != "2160p" {
+		t.Fatalf("known-profile fallback candidates = %#v, want ranked failover candidates", knownFallback)
 	}
 	explicitID := candidateVariantID(candidates[0])
 	explicit := resolver.SelectCandidates("virtual://movie/tt1?result="+url.QueryEscape(explicitID), candidates)

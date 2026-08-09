@@ -211,6 +211,12 @@ func matchProfile(c StreamCandidate, p QualityProfile) bool {
 	if p.HDR != "" && c.HDR != p.HDR {
 		return false
 	}
+	if p.ExcludeHDR == "*" && c.HDR != "" {
+		return false
+	}
+	if p.ExcludeHDR != "" && p.ExcludeHDR != "*" && strings.EqualFold(c.HDR, p.ExcludeHDR) {
+		return false
+	}
 	return true
 }
 

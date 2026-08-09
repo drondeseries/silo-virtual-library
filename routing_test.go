@@ -181,6 +181,86 @@ func TestFetchTMDBReleaseQueuesWhenAllMarketsAreTheatrical(t *testing.T) {
 	}
 }
 
+func TestAiredEpisodesExcludesUnknownAndFutureDates(t *testing.T) {
+	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
+	episodes := airedEpisodes([]virtualEpisode{
+		{Season: 1, Episode: 1, Released: now.Add(-time.Hour)},
+		{Season: 1, Episode: 2, Released: now.Add(time.Hour)},
+		{Season: 1, Episode: 3},
+		{Season: 0, Episode: 4, Released: now.Add(-time.Hour)},
+	}, now)
+	if len(episodes) != 1 || episodes[0].Episode != 1 {
+		t.Fatalf("aired episodes = %#v, want only the released episode", episodes)
+	}
+}
+
+func TestForcedMovieCanPassReleaseGate(t *testing.T) {
+	metadata := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/movie/99/release_dates":
+			_, _ = w.Write([]byte(`{"results":[{"iso_3166_1":"US","release_dates":[{"type":4,"release_date":"2099-01-01T00:00:00.000Z"}]}]}`))
+		case "/movie/99":
+			_, _ = w.Write([]byte(`{"runtime":120}`))
+		default:
+			_, _ = w.Write([]byte(`{"meta":{"name":"Future Movie"}}`))
+		}
+	}))
+	defer metadata.Close()
+	previousTMDB, previousCinemeta := tmdbBaseURL, cinemetaBaseURL
+	tmdbBaseURL, cinemetaBaseURL = metadata.URL, metadata.URL
+	t.Cleanup(func() { tmdbBaseURL, cinemetaBaseURL = previousTMDB, previousCinemeta })
+
+	monitor := newMediaMonitor(nil, hclog.NewNullLogger())
+	if err := monitor.Configure(monitorConfig{TMDBAPIKey: "test-key", File: filepath.Join(t.TempDir(), "queue.json")}); err != nil {
+		t.Fatal(err)
+	}
+	item, _, err := monitor.evaluate(context.Background(), monitoredMedia{MediaType: "movie", Title: "Future Movie", TMDBID: "99", Force: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !item.Ready {
+		t.Fatal("forced movie remained queued")
+	}
+}
+
+func TestFutureMovieCannotBeReleasedByIndexerMatch(t *testing.T) {
+	metadata := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/movie/99/release_dates":
+			_, _ = w.Write([]byte(`{"results":[{"iso_3166_1":"US","release_dates":[{"type":4,"release_date":"2099-01-01T00:00:00.000Z"}]}]}`))
+		case "/movie/99":
+			_, _ = w.Write([]byte(`{"runtime":120}`))
+		default:
+			_, _ = w.Write([]byte(`{"meta":{"name":"Future Movie"}}`))
+		}
+	}))
+	defer metadata.Close()
+	previousTMDB, previousCinemeta := tmdbBaseURL, cinemetaBaseURL
+	tmdbBaseURL, cinemetaBaseURL = metadata.URL, metadata.URL
+	t.Cleanup(func() {
+		tmdbBaseURL, cinemetaBaseURL = previousTMDB, previousCinemeta
+	})
+
+	monitor := newMediaMonitor(nil, hclog.NewNullLogger())
+	monitor.Configure(monitorConfig{TMDBAPIKey: "test-key", File: filepath.Join(t.TempDir(), "queue.json")})
+	monitor.prowlarr = newProwlarrSearchClient(nil)
+	monitor.prowlarr.releases = []prowlarrRelease{{TMDBID: 99}}
+	item, message, err := monitor.evaluate(context.Background(), monitoredMedia{
+		MediaType: "movie",
+		Title:     "Future Movie",
+		TMDBID:    "99",
+		IMDbID:    "tt0000099",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item.Ready {
+		t.Fatalf("future movie became ready: %s", message)
+	}
+}
+
 func TestParseRuntimeMinutes(t *testing.T) {
 	for input, want := range map[string]int{"48 min": 48, "1h 30min": 90, "129": 129, "": 0} {
 		if got := parseRuntimeMinutes(input); got != want {

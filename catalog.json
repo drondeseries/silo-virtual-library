@@ -3,9 +3,15 @@
     {
       "manifest": {
         "plugin_id": "com.drondeseries.silo-virtual-library",
-        "version": "0.4.65",
+        "version": "0.4.66",
         "silo_api_version": "v1",
         "capabilities": [
+          {
+            "type": "http_routes.v1",
+            "id": "admin-routes",
+            "display_name": "Virtual Library Admin",
+            "description": "Review monitored media and manage release-gate overrides."
+          },
           {
             "type": "virtual_stream_provider.v1",
             "id": "stremio-stream-resolver",
@@ -49,6 +55,23 @@
             "description": "Checks queued media for home release and adds newly aired series episodes."
           }
         ],
+        "http_routes": [
+          {
+            "id": "admin",
+            "method": "GET",
+            "path": "/admin/virtual-library",
+            "access": "admin",
+            "navigable": true,
+            "navigation_label": "Virtual Library",
+            "navigation_kind": "admin"
+          },
+          {
+            "id": "admin-api",
+            "method": "*",
+            "path": "/admin/virtual-library/*",
+            "access": "admin"
+          }
+        ],
         "presentation": {
           "display_name": "Silo Virtual Library",
           "summary": "Zero-storage virtual playback backed by dynamic streaming provider resolution.",
@@ -81,7 +104,7 @@
             "key": "streaming",
             "title": "streaming provider",
             "description": "Connection to the configured streaming provider Stremio addon.",
-            "json_schema": "{\"type\":\"object\",\"properties\":{\"manifest_url\":{\"type\":\"string\",\"format\":\"uri\",\"maxLength\":4096},\"movie_library_id\":{\"type\":\"integer\",\"minimum\":1,\"default\":1},\"series_library_id\":{\"type\":\"integer\",\"minimum\":1,\"default\":2},\"tmdb_api_key\":{\"type\":\"string\",\"maxLength\":4096},\"monitor_file\":{\"type\":\"string\",\"maxLength\":4096,\"default\":\".silo-virtual-library-monitored.json\"},\"allow_insecure_http\":{\"type\":\"boolean\",\"default\":false},\"cache_ttl_minutes\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":10080,\"default\":10},\"enable_quality_profiles\":{\"type\":\"boolean\",\"default\":false},\"quality_profiles\":{\"type\":\"array\",\"maxItems\":10,\"items\":{\"type\":\"object\",\"properties\":{\"label\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":128},\"resolution\":{\"type\":\"string\",\"maxLength\":64},\"include_regex\":{\"type\":\"string\",\"maxLength\":1024},\"exclude_regex\":{\"type\":\"string\",\"maxLength\":1024},\"preferred_order\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":10000},\"codec_video\":{\"type\":\"string\",\"maxLength\":64},\"codec_audio\":{\"type\":\"string\",\"maxLength\":64},\"hdr\":{\"type\":\"string\",\"maxLength\":64}},\"required\":[\"label\"],\"additionalProperties\":false}},\"fallback_to_any_stream\":{\"type\":\"boolean\",\"default\":false}},\"required\":[\"manifest_url\"],\"additionalProperties\":false}",
+            "json_schema": "{\"type\":\"object\",\"properties\":{\"manifest_url\":{\"type\":\"string\",\"format\":\"uri\",\"maxLength\":4096},\"movie_library_id\":{\"type\":\"integer\",\"minimum\":1,\"default\":1},\"series_library_id\":{\"type\":\"integer\",\"minimum\":1,\"default\":2},\"tmdb_api_key\":{\"type\":\"string\",\"maxLength\":4096},\"monitor_file\":{\"type\":\"string\",\"maxLength\":4096,\"default\":\".silo-virtual-library-monitored.json\"},\"allow_insecure_http\":{\"type\":\"boolean\",\"default\":false},\"cache_ttl_minutes\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":10080,\"default\":10},\"enable_quality_profiles\":{\"type\":\"boolean\",\"default\":false},\"quality_profiles\":{\"type\":\"array\",\"maxItems\":10,\"items\":{\"type\":\"object\",\"properties\":{\"label\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":128},\"resolution\":{\"type\":\"string\",\"maxLength\":64},\"include_regex\":{\"type\":\"string\",\"maxLength\":1024},\"exclude_regex\":{\"type\":\"string\",\"maxLength\":1024},\"preferred_order\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":10000},\"codec_video\":{\"type\":\"string\",\"maxLength\":64},\"codec_audio\":{\"type\":\"string\",\"maxLength\":64},\"hdr\":{\"type\":\"string\",\"maxLength\":64},\"exclude_hdr\":{\"type\":\"string\",\"maxLength\":64}},\"required\":[\"label\"],\"additionalProperties\":false}},\"fallback_to_any_stream\":{\"type\":\"boolean\",\"default\":false},\"indexer_rss_url\":{\"type\":\"string\",\"format\":\"uri\",\"maxLength\":4096,\"description\":\"Your Prowlarr base URL (e.g. https://prowlarr.example.com). Searches all enabled indexers in one request.\"},\"indexer_api_key\":{\"type\":\"string\",\"maxLength\":4096,\"description\":\"API key for your Prowlarr instance. Leave blank if not required.\"},\"indexer_rss_check_minutes\":{\"type\":\"integer\",\"minimum\":15,\"maximum\":10080,\"default\":15,\"description\":\"How often to check Prowlarr for new releases. Minimum 15 minutes.\"},\"quality_preset\":{\"type\":\"string\",\"enum\":[\"custom\",\"balanced\",\"4k-hdr\",\"4k-dolby-vision\",\"no-dolby-vision\",\"no-hdr\",\"compatibility\",\"anime\"],\"default\":\"custom\"}},\"required\":[\"manifest_url\"],\"additionalProperties\":false}",
             "required": true,
             "admin_form": {
               "fields": [
@@ -89,7 +112,7 @@
                   "key": "movie_library_id",
                   "label": "Movies Library",
                   "description": "Destination Silo Movies library. Need one? Create it at [Settings -> Libraries](/admin/libraries) and use the \"Add Virtual\" button on the Folders tab — no local storage required.",
-                  "control": 3,
+                  "control": "ADMIN_FORM_CONTROL_SELECT",
                   "dynamic_options": true,
                   "required": false
                 },
@@ -97,64 +120,128 @@
                   "key": "series_library_id",
                   "label": "Series Library",
                   "description": "Destination Silo Series library. Need one? Create it at [Settings -> Libraries](/admin/libraries) and use the \"Add Virtual\" button on the Folders tab — no local storage required.",
-                  "control": 3,
+                  "control": "ADMIN_FORM_CONTROL_SELECT",
                   "dynamic_options": true,
                   "required": false
                 },
                 {
                   "key": "manifest_url",
                   "label": "Manifest URL",
-                  "description": "The complete tokenized streaming provider URL ending in /manifest.json.",
-                  "control": 3,
+                  "description": "Full streaming provider manifest URL (e.g. AIOStreams, StreamNZB, or any Stremio-compatible addon). Must include the full tokenized path ending in /manifest.json.",
+                  "control": "ADMIN_FORM_CONTROL_PASSWORD",
                   "placeholder": "https://…/manifest.json",
                   "required": true,
-                  "secret": true
-                },
-                {
-                  "key": "tmdb_api_key",
-                  "label": "TMDB API Token",
-                  "description": "Optional TMDB v4 token or v3 API key used to distinguish theatrical from home-media releases.",
-                  "control": 3,
                   "secret": true
                 },
                 {
                   "key": "allow_insecure_http",
                   "label": "Allow local HTTP",
                   "description": "Allow plain HTTP only for localhost, .local, single-label Docker/service names, or private IPs. HTTPS remains the default.",
-                  "control": 5
+                  "control": "ADMIN_FORM_CONTROL_SWITCH"
                 },
                 {
                   "key": "cache_ttl_minutes",
                   "label": "Candidate Cache TTL (minutes)",
-                  "description": "How long provider stream candidates are cached (1–10080 minutes).",
-                  "control": 4,
+                  "description": "How long stream candidates are cached before re-fetching from the provider (1–10080 minutes). Lower = fresher results, higher = faster playback.",
+                  "control": "ADMIN_FORM_CONTROL_NUMBER",
                   "placeholder": "10"
+                },
+                {
+                  "key": "indexer_rss_url",
+                  "label": "Prowlarr URL",
+                  "description": "Optional Prowlarr base URL for release monitoring. If Silo and Prowlarr run in Docker on the same host, use the container name (e.g. http://prowlarr:9696) to bypass auth gates. Leave blank to skip release monitoring.",
+                  "control": "ADMIN_FORM_CONTROL_TEXT",
+                  "placeholder": "https://prowlarr.example.com"
+                },
+                {
+                  "key": "indexer_api_key",
+                  "label": "Prowlarr API Key",
+                  "description": "API key for your Prowlarr instance. Leave blank if not required.",
+                  "control": "ADMIN_FORM_CONTROL_PASSWORD",
+                  "secret": true,
+                  "placeholder": "Optional API key"
+                },
+                {
+                  "key": "indexer_rss_check_minutes",
+                  "label": "Search Check Interval (minutes)",
+                  "description": "How often to check Prowlarr for new releases (minimum 15 minutes, maximum 1 week).",
+                  "control": "ADMIN_FORM_CONTROL_NUMBER",
+                  "placeholder": "15"
+                },
+                {
+                  "key": "tmdb_api_key",
+                  "label": "TMDB API Token",
+                  "description": "TMDB API key (v3) or bearer token (v4) for accurate release-date detection. Without it, movies use a conservative 90-day theatrical window.",
+                  "control": "ADMIN_FORM_CONTROL_PASSWORD",
+                  "secret": true,
+                  "placeholder": "eyJhbG... or v3 api key"
                 },
                 {
                   "key": "monitor_file",
                   "label": "Monitored Queue File",
-                  "description": "Writable path used to persist queued media across plugin restarts.",
-                  "control": 1,
+                  "description": "File path for persisting the monitored media queue. Defaults to .silo-virtual-library-monitored.json in the plugin work directory.",
+                  "control": "ADMIN_FORM_CONTROL_TEXT",
                   "placeholder": ".silo-virtual-library-monitored.json"
                 },
                 {
                   "key": "enable_quality_profiles",
                   "label": "Enable Quality Profiles",
-                  "description": "Use configurable quality profiles to match streaming provider.",
-                  "control": 5
+                  "description": "Enable quality-based stream filtering. Each media gets a profile picker during playback.",
+                  "control": "ADMIN_FORM_CONTROL_SWITCH"
+                },
+                {
+                  "key": "quality_preset",
+                  "label": "Quality Profile Preset",
+                  "description": "Choose a starting profile set. Custom keeps the JSON editor below available for advanced matching.",
+                  "control": "ADMIN_FORM_CONTROL_SELECT",
+                  "options": [
+                    {
+                      "value": "custom",
+                      "label": "Custom"
+                    },
+                    {
+                      "value": "balanced",
+                      "label": "Balanced 1080p"
+                    },
+                    {
+                      "value": "4k-hdr",
+                      "label": "4K HDR + 1080p"
+                    },
+                    {
+                      "value": "4k-dolby-vision",
+                      "label": "4K Dolby Vision + 1080p"
+                    },
+                    {
+                      "value": "no-dolby-vision",
+                      "label": "No Dolby Vision"
+                    },
+                    {
+                      "value": "no-hdr",
+                      "label": "No HDR (SDR only)"
+                    },
+                    {
+                      "value": "compatibility",
+                      "label": "Compatibility"
+                    },
+                    {
+                      "value": "anime",
+                      "label": "Anime"
+                    }
+                  ]
                 },
                 {
                   "key": "quality_profiles",
                   "label": "Quality Profiles",
-                  "description": "Configure profiles with constraints.",
-                  "control": 2,
-                  "rows": 6
+                  "description": "One profile per label. Fields: label (required), resolution (2160p/1080p/720p/480p), hdr, exclude_hdr (use * to require SDR), codec_video, codec_audio, include_regex, exclude_regex, preferred_order.",
+                  "control": "ADMIN_FORM_CONTROL_TEXTAREA",
+                  "rows": 6,
+                  "placeholder": "[\n  {\"label\": \"4K DV\",  \"resolution\": \"2160p\", \"hdr\": \"dv\"},\n  {\"label\": \"1080p\",  \"resolution\": \"1080p\"},\n  {\"label\": \"No Cam\", \"exclude_regex\": \"(?i)cam|ts|hdcam\"}\n]"
                 },
                 {
                   "key": "fallback_to_any_stream",
                   "label": "Fallback to Any Stream",
                   "description": "Return 1 stream if no profiles match.",
-                  "control": 5
+                  "control": "ADMIN_FORM_CONTROL_SWITCH"
                 }
               ],
               "submit_label": "Save streaming provider connection"

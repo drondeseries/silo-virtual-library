@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
-	"io"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"

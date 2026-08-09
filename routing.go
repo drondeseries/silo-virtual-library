@@ -47,6 +47,7 @@ type monitoredMedia struct {
 	Runtime                                                            int       `json:"runtime,omitempty"`
 	Release                                                            time.Time `json:"release"`
 	Ready                                                              bool      `json:"ready"`
+	Force                                                              bool      `json:"force"`
 	Overview, Poster, Backdrop                                         string
 	Genres                                                             []string
 	Episodes                                                           []virtualEpisode
@@ -64,7 +65,7 @@ type mediaMonitor struct {
 	config     monitorConfig
 	items      map[string]monitoredMedia
 	registrar  virtualMediaRegistrar
-	prowlarr  *prowlarrSearchClient
+	prowlarr   *prowlarrSearchClient
 	registered map[string]struct{}
 }
 
@@ -149,7 +150,7 @@ func newMediaMonitor(resolver streamResolver, logger hclog.Logger) *mediaMonitor
 		logger:     logger,
 		config:     monitorConfig{File: ".silo-virtual-library-monitored.json"},
 		items:      map[string]monitoredMedia{},
-		prowlarr:  nil,
+		prowlarr:   nil,
 		registered: map[string]struct{}{},
 	}
 }
@@ -368,6 +369,10 @@ func (m *mediaMonitor) evaluate(ctx context.Context, item monitoredMedia) (monit
 		}
 		release, err := m.movieRelease(ctx, item)
 		if err != nil {
+			if item.Force && (errors.Is(err, errNoHomeRelease) || item.Title != "") {
+				item.Ready = true
+				return item, "Movie force-added by administrator", nil
+			}
 			if errors.Is(err, errNoHomeRelease) && m.prowlarrMatch(item) {
 				item.Ready = true
 				return item, "Movie release confirmed by indexer RSS feed", nil
@@ -379,22 +384,27 @@ func (m *mediaMonitor) evaluate(ctx context.Context, item monitoredMedia) (monit
 			return item, "Release metadata unavailable; monitoring will retry", err
 		}
 		item.Release = release
+		if item.Force {
+			item.Ready = true
+			return item, "Movie force-added by administrator", nil
+		}
 		if release.After(now) {
-			if m.prowlarrMatch(item) {
-				item.Ready = true
-				return item, "Movie release confirmed by indexer RSS feed", nil
-			}
 			item.Ready = false
-			return item, "Movie is not released for home media yet; monitoring indexer RSS feed", nil
+			return item, "Movie is not released for home media yet; monitoring indexer search", nil
 		}
 	}
 	if item.MediaType == "series" {
-		aired := make([]virtualEpisode, 0, len(item.Episodes))
-		for _, episode := range episodeList(item.Episodes) {
-			if episode.Season <= 0 || episode.Episode <= 0 || episode.Released.After(now) {
-				continue
+		aired := item.Episodes
+		if !item.Force {
+			aired = airedEpisodes(item.Episodes, now)
+		} else {
+			valid := make([]virtualEpisode, 0, len(item.Episodes))
+			for _, episode := range episodeList(item.Episodes) {
+				if episode.Season > 0 && episode.Episode > 0 {
+					valid = append(valid, episode)
+				}
 			}
-			aired = append(aired, episode)
+			aired = valid
 		}
 		item.Episodes = aired
 		item.Ready = len(aired) > 0
@@ -412,6 +422,17 @@ func episodeList(episodes []virtualEpisode) []virtualEpisode {
 		return []virtualEpisode{}
 	}
 	return episodes
+}
+
+func airedEpisodes(episodes []virtualEpisode, now time.Time) []virtualEpisode {
+	aired := make([]virtualEpisode, 0, len(episodes))
+	for _, episode := range episodeList(episodes) {
+		if episode.Season <= 0 || episode.Episode <= 0 || episode.Released.IsZero() || episode.Released.After(now) {
+			continue
+		}
+		aired = append(aired, episode)
+	}
+	return aired
 }
 
 func episodeMetadataComplete(episodes []virtualEpisode) bool {

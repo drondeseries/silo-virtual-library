@@ -136,17 +136,15 @@ func (c *manifestStreamResolver) Resolve(ctx context.Context, virtualPath string
 	return selected[0].URL, nil
 }
 
-// SelectCandidates applies the same quality-profile policy used by Resolve
-// while retaining the complete ranked list for the explicit results=all URI.
-// A normal profile URI deliberately returns only its best match; this keeps
-// one virtual item per configured profile while More Results exposes choices.
+// SelectCandidates applies the quality-profile policy while retaining every
+// ranked candidate so the host can fail over when a temporary provider URL
+// fails. Catalog variants remain one per configured profile label.
 func (c *manifestStreamResolver) SelectCandidates(virtualPath string, candidates []StreamCandidate) []StreamCandidate {
 	u, _ := url.Parse(virtualPath)
 	if u == nil {
 		return cloneCandidates(candidates)
 	}
 	requestedProfile := strings.TrimSpace(u.Query().Get("profile"))
-	resultsAll := strings.EqualFold(strings.TrimSpace(u.Query().Get("results")), "all")
 	requestedResult := strings.TrimSpace(u.Query().Get("result"))
 	c.mu.RLock()
 	config := c.config.Quality
@@ -186,9 +184,6 @@ func (c *manifestStreamResolver) SelectCandidates(virtualPath string, candidates
 				}
 				return nil
 			}
-			if !resultsAll {
-				matched = matched[:1]
-			}
 			return matched
 		}
 		if !config.FallbackToAnyStream {
@@ -205,9 +200,6 @@ func (c *manifestStreamResolver) SelectCandidates(virtualPath string, candidates
 			}
 		}
 		return nil
-	}
-	if !resultsAll && len(ranked) > 1 {
-		ranked = ranked[:1]
 	}
 	return ranked
 }
@@ -530,7 +522,6 @@ func newProviderHTTPClient() *http.Client {
 	return newRestrictedRedirectHTTPClient(45 * time.Second)
 }
 
-
 // sameParentDomain reports whether host a and host b share at least two
 // rightmost domain labels (e.g. "v3-cinemeta.strem.io" and
 // "cinemeta-live.strem.io" both end with ".strem.io").
@@ -691,38 +682,27 @@ func (c *manifestStreamResolver) GetConfiguredVariants(virtualPath string) []run
 	c.mu.RLock()
 	config := c.config.Quality
 	c.mu.RUnlock()
-	variants := make([]runtimehost.VirtualMediaVariant, 0, len(config.Profiles)+1)
-	if config.EnableProfiles {
-		for _, profile := range config.Profiles {
-			if strings.TrimSpace(profile.Label) == "" {
-				continue
-			}
-			values := url.Values{}
-			values.Set("profile", profile.Label)
-			variants = append(variants, runtimehost.VirtualMediaVariant{
-				VirtualURI: virtualPath + "?" + values.Encode(),
-				Label:      profile.Label,
-				Resolution: profile.Resolution,
-				CodecVideo: profile.CodecVideo,
-				CodecAudio: profile.CodecAudio,
-				HDR:        profile.HDR,
-			})
+	if !config.EnableProfiles {
+		// The canonical URI is already persisted on the item. The provider
+		// response carries the complete ranked candidate list for failover.
+		return nil
+	}
+	variants := make([]runtimehost.VirtualMediaVariant, 0, len(config.Profiles))
+	for _, profile := range config.Profiles {
+		if strings.TrimSpace(profile.Label) == "" {
+			continue
 		}
-	} else {
+		values := url.Values{}
+		values.Set("profile", profile.Label)
 		variants = append(variants, runtimehost.VirtualMediaVariant{
-			VirtualURI: virtualPath,
-			Label:      "Default",
+			VirtualURI: virtualPath + "?" + values.Encode(),
+			Label:      profile.Label,
+			Resolution: profile.Resolution,
+			CodecVideo: profile.CodecVideo,
+			CodecAudio: profile.CodecAudio,
+			HDR:        profile.HDR,
 		})
 	}
-	// This is an explicit just-in-time action. It is not a provider URL and
-	// resolves to the best candidate while Silo persists the complete response
-	// as selectable versions during the same Play request.
-	values := url.Values{}
-	values.Set("results", "all")
-	variants = append(variants, runtimehost.VirtualMediaVariant{
-		VirtualURI: virtualPath + "?" + values.Encode(),
-		Label:      "More results…",
-	})
 	return variants
 }
 
@@ -824,6 +804,7 @@ func (s *runtimeServer) Configure(_ context.Context, request *pb.ConfigureReques
 		}
 
 		var qc QualityConfig
+		qc.Preset, _ = values["quality_preset"].(string)
 		qc.EnableProfiles, _ = values["enable_quality_profiles"].(bool)
 		qc.FallbackToAnyStream, _ = values["fallback_to_any_stream"].(bool)
 		profiles, err := decodeQualityProfiles(values["quality_profiles"])
@@ -831,6 +812,7 @@ func (s *runtimeServer) Configure(_ context.Context, request *pb.ConfigureReques
 			return nil, fmt.Errorf("quality_profiles: %w", err)
 		}
 		qc.Profiles = profiles
+		qc.ApplyPreset()
 
 		if err := qc.Validate(); err != nil {
 			return nil, fmt.Errorf("invalid quality config: %w", err)
@@ -900,8 +882,14 @@ func main() {
 	monitor := newMediaMonitor(resolver, hclog.New(&hclog.LoggerOptions{Name: "silo-virtual-library-monitor"}))
 	runtime := &runtimeServer{manifest: manifest, resolver: resolver, monitor: monitor}
 	sdkruntime.Serve(sdkruntime.ServeConfig{
-		Logger:  hclog.New(&hclog.LoggerOptions{Name: "silo-virtual-library"}),
-		Servers: sdkruntime.CapabilityServers{Runtime: runtime, VirtualStreamProvider: &virtualStreamProvider{resolver: resolver}, RequestRouter: runtime, ScheduledTask: runtime},
+		Logger: hclog.New(&hclog.LoggerOptions{Name: "silo-virtual-library"}),
+		Servers: sdkruntime.CapabilityServers{
+			Runtime:               runtime,
+			VirtualStreamProvider: &virtualStreamProvider{resolver: resolver},
+			RequestRouter:         runtime,
+			ScheduledTask:         runtime,
+			HttpRoutes:            newAdminRoutes(runtime),
+		},
 	})
 }
 func loadManifest() (*pb.PluginManifest, error) {
