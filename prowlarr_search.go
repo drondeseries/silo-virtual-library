@@ -90,6 +90,10 @@ func (c *prowlarrSearchClient) Configure(baseURL, apiKey string, intervalMinutes
 }
 
 func (c *prowlarrSearchClient) searchURL() (string, error) {
+	return c.searchURLForQuery("")
+}
+
+func (c *prowlarrSearchClient) searchURLForQuery(query string) (string, error) {
 	c.mu.Lock()
 	raw := c.url
 	key := c.apiKey
@@ -103,11 +107,35 @@ func (c *prowlarrSearchClient) searchURL() (string, error) {
 	}
 	q := u.Query()
 	q.Set("limit", "200")
+	if strings.TrimSpace(query) != "" {
+		q.Set("query", query)
+	}
 	if key != "" {
 		q.Set("apikey", key)
 	}
 	u.RawQuery = q.Encode()
 	return u.String(), nil
+}
+
+func (c *prowlarrSearchClient) search(ctx context.Context, item monitoredMedia) ([]prowlarrRelease, error) {
+	searchURL, err := c.searchURLForQuery(item.Title)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, searchURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/json")
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("Prowlarr search returned status %d", resp.StatusCode)
+	}
+	return parseProwlarrSearch(io.LimitReader(resp.Body, maxSearchBodyBytes+1))
 }
 
 func (c *prowlarrSearchClient) Stale() bool {
@@ -218,6 +246,14 @@ func (c *prowlarrSearchClient) Match(item monitoredMedia) bool {
 	if len(releases) == 0 {
 		return false
 	}
+	return matchProwlarrReleases(releases, item)
+}
+
+func (c *prowlarrSearchClient) SearchItem(ctx context.Context, item monitoredMedia) ([]prowlarrRelease, error) {
+	return c.search(ctx, item)
+}
+
+func matchProwlarrReleases(releases []prowlarrRelease, item monitoredMedia) bool {
 	wantTitle, titleYear := normalizeReleaseTitle(item.Title)
 	wantYear := item.Year
 	if wantYear == 0 && titleYear != 0 {

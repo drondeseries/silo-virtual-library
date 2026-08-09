@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 )
@@ -109,6 +110,22 @@ func TestSearchURLConstruction(t *testing.T) {
 	}
 	if u == "" {
 		t.Fatal("expected non-empty URL")
+	}
+}
+
+func TestSearchURLConstructionForTitle(t *testing.T) {
+	cache := newProwlarrSearchClient(nil)
+	cache.Configure("https://prowlarr.example.com", "mykey", 15)
+	u, err := cache.searchURLForQuery("Lucky Strike")
+	if err != nil {
+		t.Fatalf("searchURLForQuery: %v", err)
+	}
+	parsed, err := url.Parse(u)
+	if err != nil {
+		t.Fatalf("parse search URL: %v", err)
+	}
+	if got := parsed.Query().Get("query"); got != "Lucky Strike" {
+		t.Fatalf("query = %q, want Lucky Strike", got)
 	}
 }
 
