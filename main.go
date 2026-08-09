@@ -46,13 +46,13 @@ const (
 var manifestJSON []byte
 
 // resolvePluginDataPath turns a possibly-relative state file path into an
-// absolute path under the plugin data directory so monitor state survives
-// container recreation. The legacy default wrote into the process cwd, which
-// is ephemeral on the host. An existing relative file is migrated once.
-func resolvePluginDataPath(file string) string {
+// absolute path under the plugin data directory so state survives container
+// recreation. The legacy default wrote into the process cwd, which is
+// ephemeral on the host. An existing relative file is migrated once.
+func resolvePluginDataPath(file, fallback string) string {
 	file = strings.TrimSpace(file)
 	if file == "" {
-		file = ".silo-virtual-library-monitored.json"
+		file = fallback
 	}
 	if filepath.IsAbs(file) {
 		return file
@@ -850,9 +850,9 @@ func (s *runtimeServer) Configure(_ context.Context, request *pb.ConfigureReques
 		}
 
 		monitorFile, _ := entry.GetValue().AsMap()["monitor_file"].(string)
-		monitorFile = resolvePluginDataPath(monitorFile)
+		monitorFile = resolvePluginDataPath(monitorFile, ".silo-virtual-library-monitored.json")
 		prowlarrIndexFile, _ := entry.GetValue().AsMap()["prowlarr_index_file"].(string)
-		prowlarrIndexFile = resolvePluginDataPath(prowlarrIndexFile)
+		prowlarrIndexFile = resolvePluginDataPath(prowlarrIndexFile, ".silo-virtual-library-prowlarr-index.json")
 		movieLibraryID, err := configuredFolderID(entry.GetValue().AsMap()["movie_library_id"])
 		if err != nil {
 			return nil, err
