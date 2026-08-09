@@ -52,6 +52,9 @@ func (a *adminRoutes) queueJSON() (*pb.HandleHTTPResponse, error) {
 	a.server.monitor.mu.Lock()
 	items := make([]monitoredMedia, 0, len(a.server.monitor.items))
 	for _, item := range a.server.monitor.items {
+		if item.Ready {
+			continue
+		}
 		items = append(items, item)
 	}
 	a.server.monitor.mu.Unlock()
@@ -68,7 +71,7 @@ func (a *adminRoutes) calendarJSON() (*pb.HandleHTTPResponse, error) {
 	a.server.monitor.mu.Lock()
 	items := make([]monitoredMedia, 0, len(a.server.monitor.items))
 	for _, item := range a.server.monitor.items {
-		if !item.Release.IsZero() {
+		if !item.Ready && !item.Release.IsZero() {
 			items = append(items, item)
 		}
 	}
