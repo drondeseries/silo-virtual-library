@@ -3,7 +3,7 @@
     {
       "manifest": {
         "plugin_id": "com.drondeseries.silo-virtual-library",
-        "version": "0.4.75",
+        "version": "0.4.76",
         "silo_api_version": "v1",
         "capabilities": [
           {
