@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -43,6 +44,36 @@ const (
 
 //go:embed manifest.json
 var manifestJSON []byte
+
+// resolvePluginDataPath turns a possibly-relative state file path into an
+// absolute path under the plugin data directory so monitor state survives
+// container recreation. The legacy default wrote into the process cwd, which
+// is ephemeral on the host. An existing relative file is migrated once.
+func resolvePluginDataPath(file string) string {
+	file = strings.TrimSpace(file)
+	if file == "" {
+		file = ".silo-virtual-library-monitored.json"
+	}
+	if filepath.IsAbs(file) {
+		return file
+	}
+	base := strings.TrimSpace(os.Getenv("SILO_PLUGIN_CACHE_DIR"))
+	if base == "" {
+		return file
+	}
+	dir := filepath.Join(base, "com.drondeseries.silo-virtual-library")
+	target := filepath.Join(dir, file)
+	if _, err := os.Stat(target); err == nil {
+		return target
+	}
+	if _, err := os.Stat(file); err == nil {
+		_ = os.MkdirAll(dir, 0o700)
+		if data, readErr := os.ReadFile(file); readErr == nil {
+			_ = os.WriteFile(target, data, 0o600)
+		}
+	}
+	return target
+}
 
 type streamResolver interface {
 	Resolve(context.Context, string) (string, error)
@@ -819,7 +850,9 @@ func (s *runtimeServer) Configure(_ context.Context, request *pb.ConfigureReques
 		}
 
 		monitorFile, _ := entry.GetValue().AsMap()["monitor_file"].(string)
+		monitorFile = resolvePluginDataPath(monitorFile)
 		prowlarrIndexFile, _ := entry.GetValue().AsMap()["prowlarr_index_file"].(string)
+		prowlarrIndexFile = resolvePluginDataPath(prowlarrIndexFile)
 		movieLibraryID, err := configuredFolderID(entry.GetValue().AsMap()["movie_library_id"])
 		if err != nil {
 			return nil, err

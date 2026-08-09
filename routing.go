@@ -263,6 +263,50 @@ func (m *mediaMonitor) remember(item monitoredMedia) error {
 	}
 	return nil
 }
+
+// rememberSeriesEpisodes merges freshly evaluated episodes into the persisted
+// series item without dropping entries that are already registered, so the
+// monitor queue can keep tracking upcoming episodes for ongoing series.
+func (m *mediaMonitor) rememberSeriesEpisodes(key string, episodes []virtualEpisode) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	item, ok := m.items[key]
+	if !ok {
+		return
+	}
+	item.Episodes = mergeEpisodes(item.Episodes, episodes)
+	m.items[key] = item
+}
+
+func mergeEpisodes(existing, fresh []virtualEpisode) []virtualEpisode {
+	byKey := make(map[string]int, len(existing))
+	for i, episode := range existing {
+		byKey[episodeKey(episode)] = i
+	}
+	for _, episode := range fresh {
+		key := episodeKey(episode)
+		if idx, ok := byKey[key]; ok {
+			if !existing[idx].Available && episode.Available {
+				existing[idx].Available = true
+			}
+			if existing[idx].Title == "" {
+				existing[idx].Title = episode.Title
+			}
+			if existing[idx].Released.IsZero() {
+				existing[idx].Released = episode.Released
+			}
+			continue
+		}
+		byKey[key] = len(existing)
+		existing = append(existing, episode)
+	}
+	return existing
+}
+
+func episodeKey(episode virtualEpisode) string {
+	return fmt.Sprintf("%d:%d", episode.Season, episode.Episode)
+}
+
 func (m *mediaMonitor) forget(key string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -587,6 +631,9 @@ func (s *runtimeServer) Fulfill(ctx context.Context, req *pb.FulfillRequest) (re
 		}
 		s.monitor.markRegistered(item.Key)
 		message = "Virtual media registered in Silo library"
+		if item.MediaType == "series" {
+			s.monitor.rememberSeriesEpisodes(item.Key, item.Episodes)
+		}
 	}
 	if err := s.monitor.remember(item); err != nil {
 		return nil, fmt.Errorf("persist monitored media: %w", err)
@@ -635,16 +682,11 @@ func (s *runtimeServer) CheckStatus(ctx context.Context, req *pb.CheckStatusRequ
 			s.monitor.markRegistered(item.Key)
 			message = "Virtual media registered in Silo library"
 			if item.MediaType == "series" {
-				if err := s.monitor.remember(item); err != nil {
-					return nil, fmt.Errorf("persist monitored media: %w", err)
-				}
-			} else if err := s.monitor.remember(item); err != nil {
-				return nil, fmt.Errorf("persist monitored media: %w", err)
+				s.monitor.rememberSeriesEpisodes(item.Key, item.Episodes)
 			}
-		} else {
-			if err := s.monitor.remember(item); err != nil {
-				return nil, fmt.Errorf("persist monitored media: %w", err)
-			}
+		}
+		if err := s.monitor.remember(item); err != nil {
+			return nil, fmt.Errorf("persist monitored media: %w", err)
 		}
 		status, external := "queued", "monitored"
 		if item.Ready {
