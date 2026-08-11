@@ -135,6 +135,9 @@ func (l *siloLibrary) Register(ctx context.Context, item monitoredMedia) error {
 		filtered := episodeVariants[:0]
 		for _, v := range episodeVariants {
 			if v.VirtualURI != virtualEpURI {
+				if v.RuntimeMinutes <= 0 {
+					v.RuntimeMinutes = episode.Runtime
+				}
 				filtered = append(filtered, v)
 			}
 		}

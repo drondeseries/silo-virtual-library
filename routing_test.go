@@ -207,6 +207,28 @@ func TestMissingEpisodesIncludesKnownUpcomingAndExcludesAvailable(t *testing.T) 
 	}
 }
 
+func TestEpisodeMetadataCompleteRejectsDuplicatesAndInvalidRows(t *testing.T) {
+	if episodeMetadataComplete([]virtualEpisode{{Season: 1, Episode: 1, Title: "Pilot"}, {Season: 1, Episode: 1, Title: "Pilot"}}) {
+		t.Fatal("duplicate episode coordinates should be incomplete")
+	}
+	if episodeMetadataComplete([]virtualEpisode{{Season: 0, Episode: 1, Title: "Invalid"}}) {
+		t.Fatal("invalid episode coordinates should be incomplete")
+	}
+}
+
+func TestMergeSeriesEpisodeMetadataPreservesExistingRows(t *testing.T) {
+	got := mergeSeriesEpisodeMetadata(
+		[]virtualEpisode{{Season: 1, Episode: 1, Title: "Pilot", Runtime: 42}},
+		[]virtualEpisode{{Season: 1, Episode: 2, Title: "Second"}},
+	)
+	if len(got) != 2 || got[0].Episode != 1 || got[1].Episode != 2 {
+		t.Fatalf("merged episodes = %#v, want both episodes in order", got)
+	}
+	if got[0].Runtime != 42 {
+		t.Fatalf("existing runtime = %d, want 42", got[0].Runtime)
+	}
+}
+
 func TestForcedMovieCanPassReleaseGate(t *testing.T) {
 	metadata := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

@@ -577,12 +577,68 @@ func episodeMetadataComplete(episodes []virtualEpisode) bool {
 	if len(episodes) == 0 {
 		return false
 	}
+	seen := make(map[string]struct{}, len(episodes))
 	for _, episode := range episodes {
-		if episode.Season > 0 && episode.Episode > 0 && strings.TrimSpace(episode.Title) == "" {
+		if episode.Season <= 0 || episode.Episode <= 0 || strings.TrimSpace(episode.Title) == "" {
 			return false
 		}
+		key := episodeKey(episode)
+		if _, exists := seen[key]; exists {
+			return false
+		}
+		seen[key] = struct{}{}
 	}
 	return true
+}
+
+func mergeSeriesEpisodeMetadata(existing, fresh []virtualEpisode) []virtualEpisode {
+	byKey := make(map[string]virtualEpisode, len(existing)+len(fresh))
+	order := make([]string, 0, len(existing)+len(fresh))
+	add := func(episode virtualEpisode) {
+		if episode.Season <= 0 || episode.Episode <= 0 {
+			return
+		}
+		key := episodeKey(episode)
+		if _, exists := byKey[key]; !exists {
+			order = append(order, key)
+			byKey[key] = episode
+			return
+		}
+		current := byKey[key]
+		if current.Title == "" {
+			current.Title = episode.Title
+		}
+		if current.Overview == "" {
+			current.Overview = episode.Overview
+		}
+		if current.Thumbnail == "" {
+			current.Thumbnail = episode.Thumbnail
+		}
+		if current.Runtime <= 0 {
+			current.Runtime = episode.Runtime
+		}
+		if current.Released.IsZero() {
+			current.Released = episode.Released
+		}
+		byKey[key] = current
+	}
+	for _, episode := range existing {
+		add(episode)
+	}
+	for _, episode := range fresh {
+		add(episode)
+	}
+	result := make([]virtualEpisode, 0, len(order))
+	for _, key := range order {
+		result = append(result, byKey[key])
+	}
+	sort.SliceStable(result, func(i, j int) bool {
+		if result[i].Season != result[j].Season {
+			return result[i].Season < result[j].Season
+		}
+		return result[i].Episode < result[j].Episode
+	})
+	return result
 }
 
 func episodeRuntimeMissing(episodes []virtualEpisode) bool {
@@ -927,10 +983,11 @@ func (m *mediaMonitor) fetchCinemeta(ctx context.Context, item monitoredMedia) (
 	if runtime := parseRuntimeMinutes(payload.Meta.Runtime); runtime > 0 {
 		item.Runtime = runtime
 	}
-	item.Episodes = item.Episodes[:0]
+	freshEpisodes := make([]virtualEpisode, 0, len(payload.Meta.Videos))
 	for _, video := range payload.Meta.Videos {
-		item.Episodes = append(item.Episodes, virtualEpisode{Season: video.Season, Episode: video.Episode, Title: video.Title, Overview: video.Overview, Thumbnail: video.Thumbnail, Released: video.Released})
+		freshEpisodes = append(freshEpisodes, virtualEpisode{Season: video.Season, Episode: video.Episode, Title: video.Title, Overview: video.Overview, Thumbnail: video.Thumbnail, Released: video.Released})
 	}
+	item.Episodes = mergeSeriesEpisodeMetadata(item.Episodes, freshEpisodes)
 	return item, nil
 }
 
@@ -1063,7 +1120,7 @@ func (m *mediaMonitor) fetchTVMaze(ctx context.Context, item monitoredMedia) (mo
 	} else {
 		item.Poster = show.Image.Medium
 	}
-	item.Episodes = item.Episodes[:0]
+	freshEpisodes := make([]virtualEpisode, 0, len(episodes))
 	for _, episode := range episodes {
 		released, parseErr := time.Parse(time.RFC3339, episode.Airstamp)
 		if parseErr != nil && episode.Airdate != "" {
@@ -1073,8 +1130,9 @@ func (m *mediaMonitor) fetchTVMaze(ctx context.Context, item monitoredMedia) (mo
 		if thumbnail == "" {
 			thumbnail = episode.Image.Medium
 		}
-		item.Episodes = append(item.Episodes, virtualEpisode{Season: episode.Season, Episode: episode.Number, Runtime: episode.Runtime, Title: episode.Name, Overview: cleanTVMazeSummary(episode.Summary), Thumbnail: thumbnail, Released: released})
+		freshEpisodes = append(freshEpisodes, virtualEpisode{Season: episode.Season, Episode: episode.Number, Runtime: episode.Runtime, Title: episode.Name, Overview: cleanTVMazeSummary(episode.Summary), Thumbnail: thumbnail, Released: released})
 	}
+	item.Episodes = mergeSeriesEpisodeMetadata(item.Episodes, freshEpisodes)
 	return item, nil
 }
 
