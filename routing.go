@@ -75,6 +75,7 @@ type virtualEpisode struct {
 	Overview  string    `json:"overview,omitempty"`
 	Thumbnail string    `json:"thumbnail,omitempty"`
 	Released  time.Time `json:"released,omitempty"`
+	Available bool      `json:"available,omitempty"`
 }
 type mediaMonitor struct {
 	mu         sync.Mutex
@@ -262,6 +263,50 @@ func (m *mediaMonitor) remember(item monitoredMedia) error {
 	}
 	return nil
 }
+
+// rememberSeriesEpisodes merges freshly evaluated episodes into the persisted
+// series item without dropping entries that are already registered, so the
+// monitor queue can keep tracking upcoming episodes for ongoing series.
+func (m *mediaMonitor) rememberSeriesEpisodes(key string, episodes []virtualEpisode) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	item, ok := m.items[key]
+	if !ok {
+		return
+	}
+	item.Episodes = mergeEpisodes(item.Episodes, episodes)
+	m.items[key] = item
+}
+
+func mergeEpisodes(existing, fresh []virtualEpisode) []virtualEpisode {
+	byKey := make(map[string]int, len(existing))
+	for i, episode := range existing {
+		byKey[episodeKey(episode)] = i
+	}
+	for _, episode := range fresh {
+		key := episodeKey(episode)
+		if idx, ok := byKey[key]; ok {
+			if !existing[idx].Available && episode.Available {
+				existing[idx].Available = true
+			}
+			if existing[idx].Title == "" {
+				existing[idx].Title = episode.Title
+			}
+			if existing[idx].Released.IsZero() {
+				existing[idx].Released = episode.Released
+			}
+			continue
+		}
+		byKey[key] = len(existing)
+		existing = append(existing, episode)
+	}
+	return existing
+}
+
+func episodeKey(episode virtualEpisode) string {
+	return fmt.Sprintf("%d:%d", episode.Season, episode.Episode)
+}
+
 func (m *mediaMonitor) forget(key string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -430,27 +475,36 @@ func (m *mediaMonitor) evaluate(ctx context.Context, item monitoredMedia) (monit
 		}
 	}
 	if item.MediaType == "series" {
-		aired := item.Episodes
-		if !item.Force {
-			aired = airedEpisodes(item.Episodes, now)
-			if matched := m.prowlarrMatchedEpisodes(item, item.Episodes); len(matched) > 0 {
-				aired = appendUniqueEpisodes(aired, matched)
-			}
-		} else {
-			valid := make([]virtualEpisode, 0, len(item.Episodes))
-			for _, episode := range episodeList(item.Episodes) {
-				if episode.Season > 0 && episode.Episode > 0 {
-					valid = append(valid, episode)
+		episodes := episodeList(item.Episodes)
+		if item.Force {
+			for i := range episodes {
+				if episodes[i].Season > 0 && episodes[i].Episode > 0 {
+					episodes[i].Available = true
 				}
 			}
-			aired = valid
+		} else {
+			available := appendUniqueEpisodes(airedEpisodes(episodes, now), m.prowlarrMatchedEpisodes(item, episodes))
+			for i := range episodes {
+				for _, match := range available {
+					if episodes[i].Season == match.Season && episodes[i].Episode == match.Episode {
+						episodes[i].Available = true
+						break
+					}
+				}
+			}
 		}
-		item.Episodes = aired
-		item.Ready = len(aired) > 0
+		item.Episodes = episodes
+		available := 0
+		for _, episode := range episodes {
+			if episode.Available {
+				available++
+			}
+		}
+		item.Ready = available > 0
 		if !item.Ready {
-			return item, "Series registered; monitoring for aired episodes", metadataErr
+			return item, "Series registered; monitoring for released episodes", metadataErr
 		}
-		return item, fmt.Sprintf("%d aired episodes registered for on-demand playback", len(aired)), metadataErr
+		return item, fmt.Sprintf("%d episodes registered for on-demand playback", available), metadataErr
 	}
 	item.Ready = true
 	return item, "Movie is available for home media", nil
@@ -507,6 +561,16 @@ func airedEpisodes(episodes []virtualEpisode, now time.Time) []virtualEpisode {
 		aired = append(aired, episode)
 	}
 	return aired
+}
+
+func missingEpisodes(episodes []virtualEpisode, _ time.Time) []virtualEpisode {
+	missing := make([]virtualEpisode, 0, len(episodes))
+	for _, episode := range episodeList(episodes) {
+		if episode.Season > 0 && episode.Episode > 0 && !episode.Released.IsZero() && !episode.Available {
+			missing = append(missing, episode)
+		}
+	}
+	return missing
 }
 
 func episodeMetadataComplete(episodes []virtualEpisode) bool {
@@ -567,6 +631,9 @@ func (s *runtimeServer) Fulfill(ctx context.Context, req *pb.FulfillRequest) (re
 		}
 		s.monitor.markRegistered(item.Key)
 		message = "Virtual media registered in Silo library"
+		if item.MediaType == "series" {
+			s.monitor.rememberSeriesEpisodes(item.Key, item.Episodes)
+		}
 	}
 	if err := s.monitor.remember(item); err != nil {
 		return nil, fmt.Errorf("persist monitored media: %w", err)
@@ -615,16 +682,11 @@ func (s *runtimeServer) CheckStatus(ctx context.Context, req *pb.CheckStatusRequ
 			s.monitor.markRegistered(item.Key)
 			message = "Virtual media registered in Silo library"
 			if item.MediaType == "series" {
-				if err := s.monitor.remember(item); err != nil {
-					return nil, fmt.Errorf("persist monitored media: %w", err)
-				}
-			} else if err := s.monitor.remember(item); err != nil {
-				return nil, fmt.Errorf("persist monitored media: %w", err)
+				s.monitor.rememberSeriesEpisodes(item.Key, item.Episodes)
 			}
-		} else {
-			if err := s.monitor.remember(item); err != nil {
-				return nil, fmt.Errorf("persist monitored media: %w", err)
-			}
+		}
+		if err := s.monitor.remember(item); err != nil {
+			return nil, fmt.Errorf("persist monitored media: %w", err)
 		}
 		status, external := "queued", "monitored"
 		if item.Ready {

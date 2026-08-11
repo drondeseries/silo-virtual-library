@@ -194,6 +194,19 @@ func TestAiredEpisodesExcludesUnknownAndFutureDates(t *testing.T) {
 	}
 }
 
+func TestMissingEpisodesIncludesKnownUpcomingAndExcludesAvailable(t *testing.T) {
+	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
+	episodes := missingEpisodes([]virtualEpisode{
+		{Season: 1, Episode: 1, Released: now.Add(-time.Hour), Available: true},
+		{Season: 1, Episode: 2, Released: now.Add(-time.Hour)},
+		{Season: 1, Episode: 3, Released: now.Add(time.Hour)},
+		{Season: 1, Episode: 4},
+	}, now)
+	if len(episodes) != 2 || episodes[0].Episode != 2 || episodes[1].Episode != 3 {
+		t.Fatalf("missing episodes = %#v, want S01E02 and S01E03", episodes)
+	}
+}
+
 func TestForcedMovieCanPassReleaseGate(t *testing.T) {
 	metadata := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
