@@ -7,6 +7,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -188,6 +191,59 @@ func TestRefreshErrorDoesNotClobberExistingItems(t *testing.T) {
 	item := monitoredMedia{Title: "Obsession", Year: 2026, MediaType: "movie"}
 	if !cache.Match(item) {
 		t.Fatal("releases should survive a failed refresh")
+	}
+}
+
+func TestProwlarrIndexRoundTripsBeyondSearchResponseLimit(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "index.json")
+	releases := make([]prowlarrRelease, 0, 5000)
+	for i := 0; i < cap(releases); i++ {
+		releases = append(releases, prowlarrRelease{
+			GUID:        "guid-" + strings.Repeat("x", 1500) + string(rune(i)),
+			Title:       "Test release",
+			DownloadURL: "https://example.test/" + strings.Repeat("y", 1500),
+		})
+	}
+	data, _ := json.Marshal(releases)
+	if len(data) <= maxSearchBodyBytes {
+		t.Fatalf("test fixture is only %d bytes, want more than %d", len(data), maxSearchBodyBytes)
+	}
+
+	if err := saveProwlarrIndex(path, releases); err != nil {
+		t.Fatalf("save index: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat index: %v", err)
+	}
+	if info.Size() > maxProwlarrIndexBytes {
+		t.Fatalf("index size = %d, exceeds %d", info.Size(), maxProwlarrIndexBytes)
+	}
+
+	cache := newProwlarrSearchClient(nil)
+	if err := cache.ConfigureIndexFile(path); err != nil {
+		t.Fatalf("load index: %v", err)
+	}
+	cache.mu.Lock()
+	loaded := len(cache.releases)
+	cache.mu.Unlock()
+	if loaded == 0 {
+		t.Fatal("expected persisted releases to load")
+	}
+}
+
+func TestProwlarrIndexRejectsHardLimit(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "index.json")
+	if err := os.WriteFile(path, []byte(strings.Repeat("x", maxProwlarrIndexBytes+1)), 0600); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+
+	cache := newProwlarrSearchClient(nil)
+	err := cache.ConfigureIndexFile(path)
+	if err == nil || !strings.Contains(err.Error(), "Prowlarr index exceeds") {
+		t.Fatalf("ConfigureIndexFile error = %v, want size error", err)
 	}
 }
 

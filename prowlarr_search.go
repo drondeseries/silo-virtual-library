@@ -23,6 +23,7 @@ const (
 	minSearchCheckMinutes     = 15
 	maxSearchCheckMinutes     = 10080
 	maxSearchBodyBytes        = 8 << 20
+	maxProwlarrIndexBytes     = 64 << 20
 	maxProwlarrIndexReleases  = 20000
 	prowlarrIndexRetention    = 14 * 24 * time.Hour
 )
@@ -111,12 +112,12 @@ func (c *prowlarrSearchClient) ConfigureIndexFile(path string) error {
 		return fmt.Errorf("open Prowlarr index: %w", err)
 	}
 	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(file, maxSearchBodyBytes+1))
+	data, err := io.ReadAll(io.LimitReader(file, maxProwlarrIndexBytes+1))
 	if err != nil {
 		return fmt.Errorf("read Prowlarr index: %w", err)
 	}
-	if len(data) > maxSearchBodyBytes {
-		return fmt.Errorf("Prowlarr index exceeds %d bytes", maxSearchBodyBytes)
+	if len(data) > maxProwlarrIndexBytes {
+		return fmt.Errorf("Prowlarr index exceeds %d bytes", maxProwlarrIndexBytes)
 	}
 	var releases []prowlarrRelease
 	if err := json.Unmarshal(data, &releases); err != nil {
@@ -277,9 +278,9 @@ func pruneProwlarrReleases(releases []prowlarrRelease, now time.Time) []prowlarr
 }
 
 func saveProwlarrIndex(path string, releases []prowlarrRelease) error {
-	data, err := json.MarshalIndent(releases, "", "  ")
-	if err != nil {
-		return fmt.Errorf("encode Prowlarr index: %w", err)
+	data, kept := marshalProwlarrIndex(releases)
+	if len(data) > maxProwlarrIndexBytes {
+		return fmt.Errorf("Prowlarr index exceeds %d bytes after retaining %d releases", maxProwlarrIndexBytes, kept)
 	}
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, ".silo-prowlarr-index-*.tmp")
@@ -288,7 +289,7 @@ func saveProwlarrIndex(path string, releases []prowlarrRelease) error {
 	}
 	name := tmp.Name()
 	defer os.Remove(name)
-	if _, err = tmp.Write(append(data, '\n')); err == nil {
+	if _, err = tmp.Write(data); err == nil {
 		err = tmp.Sync()
 	}
 	if closeErr := tmp.Close(); err == nil {
@@ -298,6 +299,21 @@ func saveProwlarrIndex(path string, releases []prowlarrRelease) error {
 		return err
 	}
 	return os.Rename(name, path)
+}
+
+func marshalProwlarrIndex(releases []prowlarrRelease) ([]byte, int) {
+	for len(releases) > 0 {
+		data, err := json.Marshal(releases)
+		if err != nil {
+			return nil, len(releases)
+		}
+		data = append(data, '\n')
+		if len(data) <= maxProwlarrIndexBytes {
+			return data, len(releases)
+		}
+		releases = releases[:len(releases)-1]
+	}
+	return []byte("[]\n"), 0
 }
 
 func parseProwlarrSearch(r io.Reader) ([]prowlarrRelease, error) {
