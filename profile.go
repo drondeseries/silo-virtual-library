@@ -127,6 +127,36 @@ func customFormatPresets(preset string) []CustomFormat {
 			{Name: "Uncensored", Regex: `(?i)\buncensored\b`, Score: 150},
 			{Name: "10-bit Color", Regex: `(?i)\b10bit\b`, Score: 100},
 		}
+	case "web-tier-01":
+		return []CustomFormat{
+			{Name: "WEB Tier 1 Groups", Regex: `(?i)-(?:NTb|FLUX|Kitsune|ETHEL|playWEB|NOGRP|DECiBEL|DON|CtrlHD|TrollHD|KiNGS|hallowed|CRiMSON|BLUTONiUM|NIMA)\b`, Score: 300},
+		}
+	case "web-tier-02":
+		return []CustomFormat{
+			{Name: "WEB Tier 2 Groups", Regex: `(?i)-(?:QxR|SiNNERS|CasStudio|CMRG|LAZY|W4NK3R|HQMUX|GHOSTS)\b`, Score: 150},
+		}
+	case "remux-tier-01":
+		return []CustomFormat{
+			{Name: "Remux Tier 1 Groups", Regex: `(?i)-(?:FraMeSToR|EPSiLON|KRaLiMARK|HDC|DON|CtrlHD|TrollHD|BHDStudio)\b`, Score: 500},
+		}
+	case "remux-tier-02":
+		return []CustomFormat{
+			{Name: "Remux Tier 2 Groups", Regex: `(?i)-(?:BLUTONiUM|PmP|TRiToN|SNAKE|W4NK3R)\b`, Score: 250},
+		}
+	case "trash-recommended":
+		return []CustomFormat{
+			{Name: "English", Regex: `(?i)\b(?:eng|en|english)\b`, Score: 100},
+			{Name: "German", Regex: `(?i)\b(?:deu|ger|de|german|deutsch)\b`, Reject: true},
+			{Name: "Dubbed", Regex: `(?i)\b(?:dub|dubbed|dublado|synchroni[sz]ed)\b`, Reject: true},
+			{Name: "Cam/TS/HDCam", Regex: `(?i)\b(?:cam|hdcam|telecine|tc|tele-sync|ts|hd-ts|pdvd)\b`, Reject: true},
+			{Name: "3D", Regex: `(?i)\b(?:3d|sbs|tab|hsbs|htab)\b`, Reject: true},
+			{Name: "BR-DISK / Iso", Regex: `(?i)\b(?:br[ ._-]*disk|iso|bdmv)\b`, Reject: true},
+			{Name: "Extras / Sample", Regex: `(?i)\b(?:sample|trailer|extras)\b`, Reject: true},
+			{Name: "Repack / Proper", Regex: `(?i)\b(?:repack[0-9]?|proper[0-9]?|rerip)\b`, Score: 200},
+			{Name: "Remux Tier 1", Regex: `(?i)-(?:FraMeSToR|EPSiLON|KRaLiMARK|HDC|DON|CtrlHD|TrollHD|BHDStudio)\b`, Score: 500},
+			{Name: "WEB Tier 1", Regex: `(?i)-(?:NTb|FLUX|Kitsune|ETHEL|playWEB|NOGRP|DECiBEL|DON|CtrlHD|TrollHD|KiNGS|hallowed|CRiMSON|BLUTONiUM|NIMA)\b`, Score: 300},
+			{Name: "TrueHD Atmos / DTS:X", Regex: `(?i)(?:truehd[ ._-]*atmos|dts[ ._-]*x)`, Score: 250},
+		}
 	default:
 		return nil
 	}

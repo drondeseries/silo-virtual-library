@@ -362,6 +362,7 @@ func TestCustomFormatPresets(t *testing.T) {
 	for _, preset := range []string{
 		"english-original", "english-strict", "original-or-english",
 		"clean-quality", "audio-hd", "repack-proper", "top-web-sources", "anime-enhanced",
+		"web-tier-01", "web-tier-02", "remux-tier-01", "remux-tier-02", "trash-recommended",
 	} {
 		config := QualityConfig{CustomFormats: customFormatPresets(preset)}
 		if len(config.CustomFormats) == 0 {
