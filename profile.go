@@ -11,11 +11,21 @@ import (
 
 const (
 	maxQualityProfiles       = 10
+	maxCustomFormats         = 50
 	maxProfileLabelBytes     = 128
 	maxProfileRegexBytes     = 1024
 	maxProfileAttributeBytes = 64
 	maxPreferredOrder        = 10000
 )
+
+type CustomFormat struct {
+	Name   string `json:"name"`
+	Regex  string `json:"regex"`
+	Score  int    `json:"score"`
+	Reject bool   `json:"reject"`
+
+	match *regexp.Regexp
+}
 
 type QualityProfile struct {
 	Label          string `json:"label"`
@@ -36,6 +46,7 @@ type QualityConfig struct {
 	Preset              string           `json:"quality_preset"`
 	EnableProfiles      bool             `json:"enable_quality_profiles"`
 	Profiles            []QualityProfile `json:"quality_profiles"`
+	CustomFormats       []CustomFormat   `json:"custom_formats"`
 	FallbackToAnyStream bool             `json:"fallback_to_any_stream"`
 }
 
@@ -93,6 +104,34 @@ func decodeQualityProfiles(raw any) ([]QualityProfile, error) {
 }
 
 func (q *QualityConfig) Validate() error {
+	if len(q.CustomFormats) > maxCustomFormats {
+		return fmt.Errorf("maximum %d custom formats allowed", maxCustomFormats)
+	}
+	seenFormats := make(map[string]bool)
+	for i := range q.CustomFormats {
+		format := &q.CustomFormats[i]
+		format.Name = strings.TrimSpace(format.Name)
+		format.Regex = strings.TrimSpace(format.Regex)
+		if format.Name == "" {
+			return errors.New("custom format name cannot be empty")
+		}
+		if format.Regex == "" {
+			return fmt.Errorf("custom format %s regex cannot be empty", format.Name)
+		}
+		if len(format.Name) > maxProfileLabelBytes || len(format.Regex) > maxProfileRegexBytes {
+			return fmt.Errorf("custom format %s exceeds its size limit", format.Name)
+		}
+		key := strings.ToLower(format.Name)
+		if seenFormats[key] {
+			return fmt.Errorf("duplicate custom format name: %s", format.Name)
+		}
+		seenFormats[key] = true
+		compiled, err := regexp.Compile(format.Regex)
+		if err != nil {
+			return fmt.Errorf("invalid regex in custom format %s: %w", format.Name, err)
+		}
+		format.match = compiled
+	}
 	if !q.EnableProfiles {
 		return nil
 	}

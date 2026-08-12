@@ -237,9 +237,32 @@ func normalizeResolution(value string) string {
 	}
 }
 
-func sortCandidatesForProfile(candidates []StreamCandidate, p QualityProfile) {
+func customFormatScore(candidate StreamCandidate, formats []CustomFormat) (int, bool) {
+	text := candidate.Name + " " + candidate.Description + " " + candidate.Title + " " + candidate.URL
+	score := 0
+	for _, format := range formats {
+		if format.match == nil || !format.match.MatchString(text) {
+			continue
+		}
+		if format.Reject {
+			return 0, true
+		}
+		score += format.Score
+	}
+	return score, false
+}
+
+func sortCandidatesForProfile(candidates []StreamCandidate, p QualityProfile, formats []CustomFormat) {
 	sort.SliceStable(candidates, func(i, j int) bool {
 		c1, c2 := candidates[i], candidates[j]
+		s1, reject1 := customFormatScore(c1, formats)
+		s2, reject2 := customFormatScore(c2, formats)
+		if reject1 != reject2 {
+			return !reject1
+		}
+		if s1 != s2 {
+			return s1 > s2
+		}
 		if r1, r2 := resolutionScore(c1.Resolution), resolutionScore(c2.Resolution); r1 != r2 {
 			return r1 > r2
 		}

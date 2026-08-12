@@ -202,11 +202,13 @@ func (c *manifestStreamResolver) SelectCandidates(virtualPath string, candidates
 		matched := make([]StreamCandidate, 0, len(candidates))
 		for _, candidate := range candidates {
 			if matchProfile(candidate, profile) {
-				matched = append(matched, candidate)
+				if _, rejected := customFormatScore(candidate, config.CustomFormats); !rejected {
+					matched = append(matched, candidate)
+				}
 			}
 		}
 		if len(matched) > 0 {
-			sortCandidatesForProfile(matched, profile)
+			sortCandidatesForProfile(matched, profile, config.CustomFormats)
 			if requestedResult != "" {
 				for _, candidate := range matched {
 					if candidateVariantID(candidate) == requestedResult {
@@ -223,7 +225,14 @@ func (c *manifestStreamResolver) SelectCandidates(virtualPath string, candidates
 	}
 
 	ranked := cloneCandidates(candidates)
-	sortCandidatesForProfile(ranked, QualityProfile{})
+	filtered := ranked[:0]
+	for _, candidate := range ranked {
+		if _, rejected := customFormatScore(candidate, config.CustomFormats); !rejected {
+			filtered = append(filtered, candidate)
+		}
+	}
+	ranked = filtered
+	sortCandidatesForProfile(ranked, QualityProfile{}, config.CustomFormats)
 	if requestedResult != "" {
 		for _, candidate := range ranked {
 			if candidateVariantID(candidate) == requestedResult {
@@ -838,6 +847,12 @@ func (s *runtimeServer) Configure(_ context.Context, request *pb.ConfigureReques
 		qc.Preset, _ = values["quality_preset"].(string)
 		qc.EnableProfiles, _ = values["enable_quality_profiles"].(bool)
 		qc.FallbackToAnyStream, _ = values["fallback_to_any_stream"].(bool)
+		if rawFormats, ok := values["custom_formats"]; ok {
+			data, marshalErr := json.Marshal(rawFormats)
+			if marshalErr != nil || json.Unmarshal(data, &qc.CustomFormats) != nil {
+				return nil, errors.New("custom_formats: invalid configuration")
+			}
+		}
 		profiles, err := decodeQualityProfiles(values["quality_profiles"])
 		if err != nil {
 			return nil, fmt.Errorf("quality_profiles: %w", err)
