@@ -845,6 +845,7 @@ func (s *runtimeServer) Configure(_ context.Context, request *pb.ConfigureReques
 
 		var qc QualityConfig
 		qc.Preset, _ = values["quality_preset"].(string)
+		qc.CustomFormatPreset, _ = values["custom_format_preset"].(string)
 		qc.EnableProfiles, _ = values["enable_quality_profiles"].(bool)
 		qc.FallbackToAnyStream, _ = values["fallback_to_any_stream"].(bool)
 		if rawFormats, ok := values["custom_formats"]; ok {

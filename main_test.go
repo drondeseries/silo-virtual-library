@@ -358,6 +358,32 @@ func TestQualityProfiles(t *testing.T) {
 	}
 }
 
+func TestCustomFormatPresets(t *testing.T) {
+	for _, preset := range []string{
+		"english-original", "english-strict", "original-or-english",
+		"clean-quality", "audio-hd", "repack-proper", "top-web-sources", "anime-enhanced",
+	} {
+		config := QualityConfig{CustomFormats: customFormatPresets(preset)}
+		if len(config.CustomFormats) == 0 {
+			t.Fatalf("expected custom format preset %s to return rules", preset)
+		}
+		if err := config.Validate(); err != nil {
+			t.Fatalf("preset %s failed validation: %v", preset, err)
+		}
+	}
+	strictConfig := QualityConfig{CustomFormats: customFormatPresets("english-strict")}
+	_ = strictConfig.Validate()
+	formats := strictConfig.CustomFormats
+	english := StreamCandidate{Title: "1080p WEB-DL ENG"}
+	german := StreamCandidate{Title: "2160p WEB-DL German"}
+	if _, rejected := customFormatScore(english, formats); rejected {
+		t.Fatal("English release was rejected")
+	}
+	if _, rejected := customFormatScore(german, formats); !rejected {
+		t.Fatal("German release was not rejected")
+	}
+}
+
 func TestCustomFormatsRankAndReject(t *testing.T) {
 	formats := []CustomFormat{
 		{Name: "English", Regex: `(?i)\b(?:eng|english)\b`, Score: 100},

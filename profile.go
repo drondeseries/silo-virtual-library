@@ -44,6 +44,7 @@ type QualityProfile struct {
 
 type QualityConfig struct {
 	Preset              string           `json:"quality_preset"`
+	CustomFormatPreset  string           `json:"custom_format_preset"`
 	EnableProfiles      bool             `json:"enable_quality_profiles"`
 	Profiles            []QualityProfile `json:"quality_profiles"`
 	CustomFormats       []CustomFormat   `json:"custom_formats"`
@@ -75,9 +76,68 @@ func qualityPresetProfiles(preset string) []QualityProfile {
 	}
 }
 
+func customFormatPresets(preset string) []CustomFormat {
+	switch strings.ToLower(strings.TrimSpace(preset)) {
+	case "english-original":
+		return []CustomFormat{
+			{Name: "English", Regex: `(?i)\b(?:eng|en|english)\b`, Score: 100},
+			{Name: "German", Regex: `(?i)\b(?:deu|ger|de|german|deutsch)\b`, Reject: true},
+			{Name: "Dubbed", Regex: `(?i)\b(?:dub|dubbed|dublado|synchroni[sz]ed)\b`, Reject: true},
+			{Name: "Multi Audio", Regex: `(?i)\b(?:multi|dual|multi[ ._-]*audio)\b`, Score: -25},
+		}
+	case "english-strict":
+		return []CustomFormat{
+			{Name: "English", Regex: `(?i)\b(?:eng|en|english)\b`, Score: 100},
+			{Name: "German", Regex: `(?i)\b(?:deu|ger|de|german|deutsch)\b`, Reject: true},
+			{Name: "Non-English Language", Regex: `(?i)\b(?:fra|fre|fr|ita|spa|jpn|kor|zho|chi|por|rus|ara|nld|dut|pol|swe|nor|dan|fin)\b`, Reject: true},
+			{Name: "Dubbed", Regex: `(?i)\b(?:dub|dubbed|dublado|synchroni[sz]ed)\b`, Reject: true},
+			{Name: "Multi Audio", Regex: `(?i)\b(?:multi|dual|multi[ ._-]*audio)\b`, Reject: true},
+		}
+	case "original-or-english":
+		return []CustomFormat{
+			{Name: "English", Regex: `(?i)\b(?:eng|en|english)\b`, Score: 100},
+			{Name: "German Dub", Regex: `(?i)\b(?:german|deutsch|deu|ger)\b`, Reject: true},
+			{Name: "Dubbed", Regex: `(?i)\b(?:dub|dubbed|dublado|synchroni[sz]ed)\b`, Reject: true},
+			{Name: "Multi Audio", Regex: `(?i)\b(?:multi|dual|multi[ ._-]*audio)\b`, Score: -10},
+		}
+	case "clean-quality":
+		return []CustomFormat{
+			{Name: "Cam/TS/HDCam", Regex: `(?i)\b(?:cam|hdcam|telecine|tc|tele-sync|ts|hd-ts|pdvd)\b`, Reject: true},
+			{Name: "3D", Regex: `(?i)\b(?:3d|sbs|tab|hsbs|htab)\b`, Reject: true},
+			{Name: "BR-DISK / Iso", Regex: `(?i)\b(?:br[ ._-]*disk|iso|bdmv)\b`, Reject: true},
+			{Name: "Extras / Sample", Regex: `(?i)\b(?:sample|trailer|extras)\b`, Reject: true},
+		}
+	case "audio-hd":
+		return []CustomFormat{
+			{Name: "TrueHD Atmos / DTS:X", Regex: `(?i)(?:truehd[ ._-]*atmos|dts[ ._-]*x)`, Score: 500},
+			{Name: "ATMOS", Regex: `(?i)\batmos\b`, Score: 300},
+			{Name: "TrueHD / DTS-HD MA", Regex: `(?i)(?:truehd|dts[ ._-]*hd[ ._-]*ma)`, Score: 250},
+		}
+	case "repack-proper":
+		return []CustomFormat{
+			{Name: "Repack / Proper", Regex: `(?i)\b(?:repack[0-9]?|proper[0-9]?|rerip)\b`, Score: 200},
+		}
+	case "top-web-sources":
+		return []CustomFormat{
+			{Name: "Top Tier WEB (NF/ATVP/AMZN/DSNP/MAX)", Regex: `(?i)\b(?:nf|atvp|atv|amzn|dsnp|hmax|max|bcore)\b`, Score: 150},
+		}
+	case "anime-enhanced":
+		return []CustomFormat{
+			{Name: "Dual Audio", Regex: `(?i)\b(?:dual[ ._-]*audio|multi[ ._-]*audio)\b`, Score: 200},
+			{Name: "Uncensored", Regex: `(?i)\buncensored\b`, Score: 150},
+			{Name: "10-bit Color", Regex: `(?i)\b10bit\b`, Score: 100},
+		}
+	default:
+		return nil
+	}
+}
+
 func (q *QualityConfig) ApplyPreset() {
 	if profiles := qualityPresetProfiles(q.Preset); len(profiles) > 0 {
 		q.Profiles = profiles
+	}
+	if formats := customFormatPresets(q.CustomFormatPreset); len(formats) > 0 {
+		q.CustomFormats = formats
 	}
 }
 

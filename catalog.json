@@ -3,7 +3,7 @@
     {
       "manifest": {
         "plugin_id": "com.drondeseries.silo-virtual-library",
-        "version": "0.4.83",
+        "version": "0.4.84",
         "silo_api_version": "v1",
         "capabilities": [
           {
@@ -104,7 +104,7 @@
             "key": "streaming",
             "title": "streaming provider",
             "description": "Connection to the configured streaming provider Stremio addon.",
-            "json_schema": "{\"type\":\"object\",\"properties\":{\"manifest_url\":{\"type\":\"string\",\"format\":\"uri\",\"maxLength\":4096},\"movie_library_id\":{\"type\":\"integer\",\"minimum\":1,\"default\":1},\"series_library_id\":{\"type\":\"integer\",\"minimum\":1,\"default\":2},\"tmdb_api_key\":{\"type\":\"string\",\"maxLength\":4096},\"monitor_file\":{\"type\":\"string\",\"maxLength\":4096,\"default\":\".silo-virtual-library-monitored.json\"},\"allow_insecure_http\":{\"type\":\"boolean\",\"default\":false},\"cache_ttl_minutes\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":10080,\"default\":10},\"enable_quality_profiles\":{\"type\":\"boolean\",\"default\":false},\"quality_profiles\":{\"type\":\"array\",\"maxItems\":10,\"items\":{\"type\":\"object\",\"properties\":{\"label\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":128},\"resolution\":{\"type\":\"string\",\"maxLength\":64},\"include_regex\":{\"type\":\"string\",\"maxLength\":1024},\"exclude_regex\":{\"type\":\"string\",\"maxLength\":1024},\"preferred_order\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":10000},\"codec_video\":{\"type\":\"string\",\"maxLength\":64},\"codec_audio\":{\"type\":\"string\",\"maxLength\":64},\"hdr\":{\"type\":\"string\",\"maxLength\":64},\"exclude_hdr\":{\"type\":\"string\",\"maxLength\":64}},\"required\":[\"label\"],\"additionalProperties\":false}},\"custom_formats\":{\"type\":\"array\",\"maxItems\":50,\"items\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":128},\"regex\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":1024},\"score\":{\"type\":\"integer\",\"minimum\":-10000,\"maximum\":10000},\"reject\":{\"type\":\"boolean\",\"default\":false}},\"required\":[\"name\",\"regex\"],\"additionalProperties\":false}},\"fallback_to_any_stream\":{\"type\":\"boolean\",\"default\":false},\"indexer_rss_url\":{\"type\":\"string\",\"format\":\"uri\",\"maxLength\":4096,\"description\":\"Your Prowlarr base URL (e.g. https://prowlarr.example.com). Searches all enabled indexers in one request.\"},\"indexer_api_key\":{\"type\":\"string\",\"maxLength\":4096,\"description\":\"API key for your Prowlarr instance. Leave blank if not required.\"},\"indexer_rss_check_minutes\":{\"type\":\"integer\",\"minimum\":15,\"maximum\":10080,\"default\":15,\"description\":\"How often to check Prowlarr for new releases. Minimum 15 minutes.\"},\"quality_preset\":{\"type\":\"string\",\"enum\":[\"custom\",\"balanced\",\"4k-hdr\",\"4k-dolby-vision\",\"no-dolby-vision\",\"no-hdr\",\"compatibility\",\"anime\"],\"default\":\"custom\"},\"prowlarr_index_file\":{\"type\":\"string\",\"maxLength\":4096,\"default\":\".silo-virtual-library-prowlarr-index.json\"}},\"required\":[\"manifest_url\"],\"additionalProperties\":false}",
+            "json_schema": "{\"type\":\"object\",\"properties\":{\"manifest_url\":{\"type\":\"string\",\"format\":\"uri\",\"maxLength\":4096},\"movie_library_id\":{\"type\":\"integer\",\"minimum\":1,\"default\":1},\"series_library_id\":{\"type\":\"integer\",\"minimum\":1,\"default\":2},\"tmdb_api_key\":{\"type\":\"string\",\"maxLength\":4096},\"monitor_file\":{\"type\":\"string\",\"maxLength\":4096,\"default\":\".silo-virtual-library-monitored.json\"},\"allow_insecure_http\":{\"type\":\"boolean\",\"default\":false},\"cache_ttl_minutes\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":10080,\"default\":10},\"enable_quality_profiles\":{\"type\":\"boolean\",\"default\":false},\"custom_format_preset\":{\"type\":\"string\",\"enum\":[\"\",\"english-original\",\"english-strict\",\"original-or-english\",\"clean-quality\",\"audio-hd\",\"repack-proper\",\"top-web-sources\",\"anime-enhanced\"],\"default\":\"\"},\"quality_profiles\":{\"type\":\"array\",\"maxItems\":10,\"items\":{\"type\":\"object\",\"properties\":{\"label\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":128},\"resolution\":{\"type\":\"string\",\"maxLength\":64},\"include_regex\":{\"type\":\"string\",\"maxLength\":1024},\"exclude_regex\":{\"type\":\"string\",\"maxLength\":1024},\"preferred_order\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":10000},\"codec_video\":{\"type\":\"string\",\"maxLength\":64},\"codec_audio\":{\"type\":\"string\",\"maxLength\":64},\"hdr\":{\"type\":\"string\",\"maxLength\":64},\"exclude_hdr\":{\"type\":\"string\",\"maxLength\":64}},\"required\":[\"label\"],\"additionalProperties\":false}},\"custom_formats\":{\"type\":\"array\",\"maxItems\":50,\"items\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":128},\"regex\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":1024},\"score\":{\"type\":\"integer\",\"minimum\":-10000,\"maximum\":10000},\"reject\":{\"type\":\"boolean\",\"default\":false}},\"required\":[\"name\",\"regex\"],\"additionalProperties\":false}},\"fallback_to_any_stream\":{\"type\":\"boolean\",\"default\":false},\"indexer_rss_url\":{\"type\":\"string\",\"format\":\"uri\",\"maxLength\":4096,\"description\":\"Your Prowlarr base URL (e.g. https://prowlarr.example.com). Searches all enabled indexers in one request.\"},\"indexer_api_key\":{\"type\":\"string\",\"maxLength\":4096,\"description\":\"API key for your Prowlarr instance. Leave blank if not required.\"},\"indexer_rss_check_minutes\":{\"type\":\"integer\",\"minimum\":15,\"maximum\":10080,\"default\":15,\"description\":\"How often to check Prowlarr for new releases. Minimum 15 minutes.\"},\"quality_preset\":{\"type\":\"string\",\"enum\":[\"custom\",\"balanced\",\"4k-hdr\",\"4k-dolby-vision\",\"no-dolby-vision\",\"no-hdr\",\"compatibility\",\"anime\"],\"default\":\"custom\"},\"prowlarr_index_file\":{\"type\":\"string\",\"maxLength\":4096,\"default\":\".silo-virtual-library-prowlarr-index.json\"}},\"required\":[\"manifest_url\"],\"additionalProperties\":false}",
             "required": true,
             "admin_form": {
               "fields": [
@@ -234,6 +234,23 @@
                       "value": "anime",
                       "label": "Anime"
                     }
+                  ]
+                },
+                {
+                  "key": "custom_format_preset",
+                  "label": "Audio / Language Preset",
+                  "description": "Sonarr/Radarr-style release-title presets for preferring English and rejecting unwanted dubs.",
+                  "control": 4,
+                  "options": [
+                    {"value": "", "label": "Custom"},
+                    {"value": "english-original", "label": "English / Original"},
+                    {"value": "english-strict", "label": "English Only (Strict)"},
+                    {"value": "original-or-english", "label": "Original or English"},
+                    {"value": "clean-quality", "label": "Clean & High Quality (Reject Cam/3D/Disks)"},
+                    {"value": "audio-hd", "label": "Lossless Audio Boost (Atmos/TrueHD/DTS:X)"},
+                    {"value": "repack-proper", "label": "Repack & Proper Priority"},
+                    {"value": "top-web-sources", "label": "Top WEB-DL Streaming Sources"},
+                    {"value": "anime-enhanced", "label": "Anime Enhanced (Dual-Audio & Uncensored)"}
                   ]
                 },
                 {
