@@ -242,20 +242,62 @@
                   "description": "Sonarr/Radarr-style release-title presets for preferring English and rejecting unwanted dubs.",
                   "control": 4,
                   "options": [
-                    {"value": "custom", "label": "Custom"},
-                    {"value": "english-original", "label": "English / Original"},
-                    {"value": "english-strict", "label": "English Only (Strict)"},
-                    {"value": "original-or-english", "label": "Original or English"},
-                    {"value": "clean-quality", "label": "Clean & High Quality (Reject Cam/3D/Disks)"},
-                    {"value": "audio-hd", "label": "Lossless Audio Boost (Atmos/TrueHD/DTS:X)"},
-                    {"value": "repack-proper", "label": "Repack & Proper Priority"},
-                    {"value": "top-web-sources", "label": "Top WEB-DL Streaming Sources"},
-                    {"value": "anime-enhanced", "label": "Anime Enhanced (Dual-Audio & Uncensored)"},
-                    {"value": "web-tier-01", "label": "WEB-DL Tier 1 Groups (NTb, FLUX, Kitsune, ETHEL, etc.)"},
-                    {"value": "web-tier-02", "label": "WEB-DL Tier 2 Groups (QxR, SiNNERS, CMRG, GHOSTS)"},
-                    {"value": "remux-tier-01", "label": "Remux Tier 1 Groups (FraMeSToR, EPSiLON, HDC, etc.)"},
-                    {"value": "remux-tier-02", "label": "Remux Tier 2 Groups (BLUTONiUM, PmP, TRiToN)"},
-                    {"value": "trash-recommended", "label": "TRaSH Recommended Bundle (Clean + Tier 1 + Atmos + Repack)"}
+                    {
+                      "value": "custom",
+                      "label": "Custom"
+                    },
+                    {
+                      "value": "english-original",
+                      "label": "English / Original"
+                    },
+                    {
+                      "value": "english-strict",
+                      "label": "English Only (Strict)"
+                    },
+                    {
+                      "value": "original-or-english",
+                      "label": "Original or English"
+                    },
+                    {
+                      "value": "clean-quality",
+                      "label": "Clean & High Quality (Reject Cam/3D/Disks)"
+                    },
+                    {
+                      "value": "audio-hd",
+                      "label": "Lossless Audio Boost (Atmos/TrueHD/DTS:X)"
+                    },
+                    {
+                      "value": "repack-proper",
+                      "label": "Repack & Proper Priority"
+                    },
+                    {
+                      "value": "top-web-sources",
+                      "label": "Top WEB-DL Streaming Sources"
+                    },
+                    {
+                      "value": "anime-enhanced",
+                      "label": "Anime Enhanced (Dual-Audio & Uncensored)"
+                    },
+                    {
+                      "value": "web-tier-01",
+                      "label": "WEB-DL Tier 1 Groups (NTb, FLUX, Kitsune, ETHEL, etc.)"
+                    },
+                    {
+                      "value": "web-tier-02",
+                      "label": "WEB-DL Tier 2 Groups (QxR, SiNNERS, CMRG, GHOSTS)"
+                    },
+                    {
+                      "value": "remux-tier-01",
+                      "label": "Remux Tier 1 Groups (FraMeSToR, EPSiLON, HDC, etc.)"
+                    },
+                    {
+                      "value": "remux-tier-02",
+                      "label": "Remux Tier 2 Groups (BLUTONiUM, PmP, TRiToN)"
+                    },
+                    {
+                      "value": "trash-recommended",
+                      "label": "TRaSH Recommended Bundle (Clean + Tier 1 + Atmos + Repack)"
+                    }
                   ]
                 },
                 {
@@ -291,15 +333,15 @@
       "binaries": {
         "linux/amd64": {
           "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.86/plugin-linux-amd64",
-          "checksum": "405364145b786a0463d079fb3a9340facecb685c0e9bf360fea714dba3f4f377"
+          "checksum": "176a61f0d870b9913d0755f0c99edaa453efe5daede3f894aefa272c24178a0d"
         },
         "linux/arm64": {
           "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.86/plugin-linux-arm64",
-          "checksum": "549200e34fe5b523926aef3a0bb39c978b584803f96595259a6481c7b23c5a8a"
+          "checksum": "c94f6bb787051b7c3a2b9e4aee208c6163631718113ce0373782037bdc9823b4"
         },
         "darwin/arm64": {
-          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.79/plugin-darwin-arm64",
-          "checksum": "d9ef2d107f6dc2477745072bac9a510b2272615a05536e91995dce82f888d35b"
+          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.86/plugin-darwin-arm64",
+          "checksum": "811818e56294e0d45464179c1663d7b8b47205b2a41454691a787ca880f58b8a"
         }
       }
     }
