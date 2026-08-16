@@ -1,6 +1,6 @@
 {
   "plugin_id": "com.drondeseries.silo-virtual-library",
-  "version": "0.4.88",
+  "version": "0.4.89",
   "silo_api_version": "v1",
   "capabilities": [
     {
@@ -101,14 +101,14 @@
       "key": "streaming",
       "title": "streaming provider",
       "description": "Connection to the configured streaming provider Stremio addon.",
-      "json_schema": "{\"type\":\"object\",\"properties\":{\"manifest_url\":{\"type\":\"string\",\"format\":\"uri\",\"maxLength\":4096},\"movie_library_id\":{\"type\":\"integer\",\"minimum\":1,\"default\":1},\"series_library_id\":{\"type\":\"integer\",\"minimum\":1,\"default\":2},\"tmdb_api_key\":{\"type\":\"string\",\"maxLength\":4096},\"monitor_file\":{\"type\":\"string\",\"maxLength\":4096,\"default\":\".silo-virtual-library-monitored.json\"},\"allow_insecure_http\":{\"type\":\"boolean\",\"default\":false},\"cache_ttl_minutes\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":10080,\"default\":10},\"enable_quality_profiles\":{\"type\":\"boolean\",\"default\":false},\"custom_format_preset\":{\"type\":\"string\",\"enum\":[\"custom\",\"english-original\",\"english-strict\",\"original-or-english\",\"clean-quality\",\"audio-hd\",\"repack-proper\",\"top-web-sources\",\"anime-enhanced\",\"web-tier-01\",\"web-tier-02\",\"remux-tier-01\",\"remux-tier-02\",\"trash-recommended\"],\"default\":\"custom\"},\"quality_profiles\":{\"type\":\"array\",\"maxItems\":10,\"items\":{\"type\":\"object\",\"properties\":{\"label\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":128},\"resolution\":{\"type\":\"string\",\"maxLength\":64},\"include_regex\":{\"type\":\"string\",\"maxLength\":1024},\"exclude_regex\":{\"type\":\"string\",\"maxLength\":1024},\"preferred_order\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":10000},\"codec_video\":{\"type\":\"string\",\"maxLength\":64},\"codec_audio\":{\"type\":\"string\",\"maxLength\":64},\"hdr\":{\"type\":\"string\",\"maxLength\":64},\"exclude_hdr\":{\"type\":\"string\",\"maxLength\":64}},\"required\":[\"label\"],\"additionalProperties\":false}},\"custom_formats\":{\"type\":\"array\",\"maxItems\":50,\"items\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":128},\"regex\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":1024},\"score\":{\"type\":\"integer\",\"minimum\":-10000,\"maximum\":10000},\"reject\":{\"type\":\"boolean\",\"default\":false}},\"required\":[\"name\",\"regex\"],\"additionalProperties\":false}},\"fallback_to_any_stream\":{\"type\":\"boolean\",\"default\":false},\"indexer_rss_url\":{\"type\":\"string\",\"format\":\"uri\",\"maxLength\":4096,\"description\":\"Your Prowlarr base URL (e.g. https://prowlarr.example.com). Searches all enabled indexers in one request.\"},\"indexer_api_key\":{\"type\":\"string\",\"maxLength\":4096,\"description\":\"API key for your Prowlarr instance. Leave blank if not required.\"},\"indexer_rss_check_minutes\":{\"type\":\"integer\",\"minimum\":15,\"maximum\":10080,\"default\":15,\"description\":\"How often to check Prowlarr for new releases. Minimum 15 minutes.\"},\"quality_preset\":{\"type\":\"string\",\"enum\":[\"custom\",\"balanced\",\"4k-hdr\",\"4k-dolby-vision\",\"no-dolby-vision\",\"no-hdr\",\"compatibility\",\"anime\"],\"default\":\"custom\"},\"prowlarr_index_file\":{\"type\":\"string\",\"maxLength\":4096,\"default\":\".silo-virtual-library-prowlarr-index.json\"},\"single_stream_with_failover\":{\"type\":\"boolean\",\"default\":false}},\"required\":[\"manifest_url\"],\"additionalProperties\":false}",
+      "json_schema": "{\"type\":\"object\",\"properties\":{\"manifest_url\":{\"type\":\"string\",\"format\":\"uri\",\"maxLength\":4096},\"movie_library_id\":{\"type\":\"integer\",\"minimum\":1,\"default\":1},\"series_library_id\":{\"type\":\"integer\",\"minimum\":1,\"default\":2},\"tmdb_api_key\":{\"type\":\"string\",\"maxLength\":4096},\"monitor_file\":{\"type\":\"string\",\"maxLength\":4096,\"default\":\".silo-virtual-library-monitored.json\"},\"allow_insecure_http\":{\"type\":\"boolean\",\"default\":false},\"cache_ttl_minutes\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":10080,\"default\":10},\"enable_quality_profiles\":{\"type\":\"boolean\",\"default\":false},\"custom_format_preset\":{\"type\":\"string\",\"enum\":[\"custom\",\"english-original\",\"english-strict\",\"original-or-english\",\"clean-quality\",\"audio-hd\",\"repack-proper\",\"top-web-sources\",\"anime-enhanced\",\"web-tier-01\",\"web-tier-02\",\"remux-tier-01\",\"remux-tier-02\",\"trash-recommended\"],\"default\":\"custom\"},\"quality_profiles\":{\"type\":\"array\",\"maxItems\":10,\"items\":{\"type\":\"object\",\"properties\":{\"label\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":128},\"resolution\":{\"type\":\"string\",\"maxLength\":64},\"include_regex\":{\"type\":\"string\",\"maxLength\":1024},\"exclude_regex\":{\"type\":\"string\",\"maxLength\":1024},\"preferred_order\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":10000},\"codec_video\":{\"type\":\"string\",\"maxLength\":64},\"codec_audio\":{\"type\":\"string\",\"maxLength\":64},\"hdr\":{\"type\":\"string\",\"maxLength\":64},\"exclude_hdr\":{\"type\":\"string\",\"maxLength\":64}},\"required\":[\"label\"],\"additionalProperties\":false}},\"custom_formats\":{\"type\":\"array\",\"maxItems\":50,\"items\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":128},\"regex\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":1024},\"score\":{\"type\":\"integer\",\"minimum\":-10000,\"maximum\":10000},\"reject\":{\"type\":\"boolean\",\"default\":false}},\"required\":[\"name\",\"regex\"],\"additionalProperties\":false}},\"fallback_to_any_stream\":{\"type\":\"boolean\",\"default\":false},\"indexer_rss_url\":{\"type\":\"string\",\"format\":\"uri\",\"maxLength\":4096,\"description\":\"Your Prowlarr base URL (e.g. https://prowlarr.example.com). Searches all enabled indexers in one request.\"},\"indexer_api_key\":{\"type\":\"string\",\"maxLength\":4096,\"description\":\"API key for your Prowlarr instance. Leave blank if not required.\"},\"indexer_rss_check_minutes\":{\"type\":\"integer\",\"minimum\":15,\"maximum\":10080,\"default\":15,\"description\":\"How often to check Prowlarr for new releases. Minimum 15 minutes.\"},\"quality_preset\":{\"type\":\"string\",\"enum\":[\"custom\",\"balanced\",\"4k-hdr\",\"4k-dolby-vision\",\"no-dolby-vision\",\"no-hdr\",\"compatibility\",\"anime\"],\"default\":\"custom\"},\"prowlarr_index_file\":{\"type\":\"string\",\"maxLength\":4096,\"default\":\".silo-virtual-library-prowlarr-index.json\"},\"single_stream_with_failover\":{\"type\":\"boolean\",\"default\":true}},\"required\":[\"manifest_url\"],\"additionalProperties\":false}",
       "required": true,
       "admin_form": {
         "fields": [
           {
             "key": "movie_library_id",
             "label": "Movies Library",
-            "description": "Destination Silo Movies library. Need one? Create it at [Settings -> Libraries](/admin/libraries) and use the \"Add Virtual\" button on the Folders tab \u2014 no local storage required.",
+            "description": "Destination Silo Movies library. Need one? Create it at [Settings -> Libraries](/admin/libraries) and use the \"Add Virtual\" button on the Folders tab — no local storage required.",
             "control": "ADMIN_FORM_CONTROL_SELECT",
             "dynamic_options": true,
             "required": false
@@ -116,7 +116,7 @@
           {
             "key": "series_library_id",
             "label": "Series Library",
-            "description": "Destination Silo Series library. Need one? Create it at [Settings -> Libraries](/admin/libraries) and use the \"Add Virtual\" button on the Folders tab \u2014 no local storage required.",
+            "description": "Destination Silo Series library. Need one? Create it at [Settings -> Libraries](/admin/libraries) and use the \"Add Virtual\" button on the Folders tab — no local storage required.",
             "control": "ADMIN_FORM_CONTROL_SELECT",
             "dynamic_options": true,
             "required": false
@@ -126,44 +126,9 @@
             "label": "Manifest URL",
             "description": "Full streaming provider manifest URL (e.g. AIOStreams, StreamNZB, or any Stremio-compatible addon). Must include the full tokenized path ending in /manifest.json.",
             "control": "ADMIN_FORM_CONTROL_PASSWORD",
-            "placeholder": "https://\u2026/manifest.json",
+            "placeholder": "https://…/manifest.json",
             "required": true,
             "secret": true
-          },
-          {
-            "key": "allow_insecure_http",
-            "label": "Allow local HTTP",
-            "description": "Allow plain HTTP only for localhost, .local, single-label Docker/service names, or private IPs. HTTPS remains the default.",
-            "control": "ADMIN_FORM_CONTROL_SWITCH"
-          },
-          {
-            "key": "cache_ttl_minutes",
-            "label": "Candidate Cache TTL (minutes)",
-            "description": "How long stream candidates are cached before re-fetching from the provider (1\u201310080 minutes). Lower = fresher results, higher = faster playback.",
-            "control": "ADMIN_FORM_CONTROL_NUMBER",
-            "placeholder": "10"
-          },
-          {
-            "key": "indexer_rss_url",
-            "label": "Prowlarr URL",
-            "description": "Optional Prowlarr base URL for release monitoring. If Silo and Prowlarr run in Docker on the same host, use the container name (e.g. http://prowlarr:9696) to bypass auth gates. Leave blank to skip release monitoring.",
-            "control": "ADMIN_FORM_CONTROL_TEXT",
-            "placeholder": "https://prowlarr.example.com"
-          },
-          {
-            "key": "indexer_api_key",
-            "label": "Prowlarr API Key",
-            "description": "API key for your Prowlarr instance. Leave blank if not required.",
-            "control": "ADMIN_FORM_CONTROL_PASSWORD",
-            "secret": true,
-            "placeholder": "Optional API key"
-          },
-          {
-            "key": "indexer_rss_check_minutes",
-            "label": "Search Check Interval (minutes)",
-            "description": "How often to check Prowlarr for new releases (minimum 15 minutes, maximum 1 week).",
-            "control": "ADMIN_FORM_CONTROL_NUMBER",
-            "placeholder": "15"
           },
           {
             "key": "tmdb_api_key",
@@ -174,18 +139,10 @@
             "placeholder": "eyJhbG... or v3 api key"
           },
           {
-            "key": "monitor_file",
-            "label": "Monitored Queue File",
-            "description": "File path for persisting the monitored media queue. Defaults to .silo-virtual-library-monitored.json in the plugin work directory.",
-            "control": "ADMIN_FORM_CONTROL_TEXT",
-            "placeholder": ".silo-virtual-library-monitored.json"
-          },
-          {
-            "key": "prowlarr_index_file",
-            "label": "Prowlarr Release Index File",
-            "description": "Optional local rolling index for the one-request Prowlarr feed. Entries expire after 14 days; registered Silo media is not affected.",
-            "control": "ADMIN_FORM_CONTROL_TEXT",
-            "placeholder": ".silo-virtual-library-prowlarr-index.json"
+            "key": "single_stream_with_failover",
+            "label": "Show One Stream With Failover",
+            "description": "Expose only the preferred stream while Silo retains alternate streams for automatic failover.",
+            "control": "ADMIN_FORM_CONTROL_SWITCH"
           },
           {
             "key": "enable_quality_profiles",
@@ -320,10 +277,78 @@
             "control": "ADMIN_FORM_CONTROL_SWITCH"
           },
           {
-            "key": "single_stream_with_failover",
-            "label": "Show One Stream With Failover",
-            "description": "Expose only the preferred stream while Silo retains alternate streams for automatic failover.",
+            "key": "indexer_rss_url",
+            "label": "Prowlarr URL",
+            "description": "Optional Prowlarr base URL for release monitoring. If Silo and Prowlarr run in Docker on the same host, use the container name (e.g. http://prowlarr:9696) to bypass auth gates. Leave blank to skip release monitoring.",
+            "control": "ADMIN_FORM_CONTROL_TEXT",
+            "placeholder": "https://prowlarr.example.com"
+          },
+          {
+            "key": "indexer_api_key",
+            "label": "Prowlarr API Key",
+            "description": "API key for your Prowlarr instance. Leave blank if not required.",
+            "control": "ADMIN_FORM_CONTROL_PASSWORD",
+            "secret": true,
+            "placeholder": "Optional API key"
+          },
+          {
+            "key": "indexer_rss_check_minutes",
+            "label": "Search Check Interval (minutes)",
+            "description": "How often to check Prowlarr for new releases (minimum 15 minutes, maximum 1 week).",
+            "control": "ADMIN_FORM_CONTROL_NUMBER",
+            "placeholder": "15"
+          },
+          {
+            "key": "prowlarr_index_file",
+            "label": "Prowlarr Release Index File",
+            "description": "Optional local rolling index for the one-request Prowlarr feed. Entries expire after 14 days; registered Silo media is not affected.",
+            "control": "ADMIN_FORM_CONTROL_TEXT",
+            "placeholder": ".silo-virtual-library-prowlarr-index.json"
+          },
+          {
+            "key": "monitor_file",
+            "label": "Monitored Queue File",
+            "description": "File path for persisting the monitored media queue. Defaults to .silo-virtual-library-monitored.json in the plugin work directory.",
+            "control": "ADMIN_FORM_CONTROL_TEXT",
+            "placeholder": ".silo-virtual-library-monitored.json"
+          },
+          {
+            "key": "cache_ttl_minutes",
+            "label": "Candidate Cache TTL (minutes)",
+            "description": "How long stream candidates are cached before re-fetching from the provider (1–10080 minutes). Lower = fresher results, higher = faster playback.",
+            "control": "ADMIN_FORM_CONTROL_NUMBER",
+            "placeholder": "10"
+          },
+          {
+            "key": "allow_insecure_http",
+            "label": "Allow local HTTP",
+            "description": "Allow plain HTTP only for localhost, .local, single-label Docker/service names, or private IPs. HTTPS remains the default.",
             "control": "ADMIN_FORM_CONTROL_SWITCH"
+          }
+        ],
+        "sections": [
+          {
+            "key": "advanced",
+            "title": "Advanced Settings",
+            "description": "Quality profiles, custom format presets, Prowlarr indexer, and internal queue paths.",
+            "collapsible": true,
+            "collapsed_default": true,
+            "field_keys": [
+              "single_stream_with_failover",
+              "enable_quality_profiles",
+              "quality_preset",
+              "quality_profiles",
+              "custom_format_preset",
+              "custom_formats",
+              "fallback_to_any_stream",
+              "indexer_rss_url",
+              "indexer_api_key",
+              "indexer_rss_check_minutes",
+              "prowlarr_index_file",
+              "monitor_file",
+              "cache_ttl_minutes",
+              "allow_insecure_http"
+            ]
           }
         ],
         "submit_label": "Save streaming provider connection"

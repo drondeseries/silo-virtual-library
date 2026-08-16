@@ -854,7 +854,11 @@ func (s *runtimeServer) Configure(_ context.Context, request *pb.ConfigureReques
 		qc.CustomFormatPreset, _ = values["custom_format_preset"].(string)
 		qc.EnableProfiles, _ = values["enable_quality_profiles"].(bool)
 		qc.FallbackToAnyStream, _ = values["fallback_to_any_stream"].(bool)
-		qc.SingleStreamWithFailover, _ = values["single_stream_with_failover"].(bool)
+		if v, ok := values["single_stream_with_failover"].(bool); ok {
+			qc.SingleStreamWithFailover = v
+		} else {
+			qc.SingleStreamWithFailover = true
+		}
 		if rawFormats, ok := values["custom_formats"]; ok {
 			data, marshalErr := json.Marshal(rawFormats)
 			if marshalErr != nil || json.Unmarshal(data, &qc.CustomFormats) != nil {
