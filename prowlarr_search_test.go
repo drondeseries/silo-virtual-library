@@ -38,6 +38,39 @@ func TestParseProwlarrSearch(t *testing.T) {
 	}
 }
 
+func TestEpisodeReleaseKeysRecognizeSupportedFormats(t *testing.T) {
+	tests := []struct {
+		title string
+		want  bool
+	}{
+		{"Show.S02E03.1080p.WEB-DL", true},
+		{"Show.2x03.720p.WEB", true},
+		{"Show.Season 2 Episode 3.HDTV", true},
+		{"Show.S02E04.1080p.WEB-DL", false},
+	}
+	for _, test := range tests {
+		t.Run(test.title, func(t *testing.T) {
+			if got := containsEpisodeReleaseKey(test.title, 2, 3); got != test.want {
+				t.Fatalf("containsEpisodeReleaseKey() = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestPrepareProwlarrReleaseCachesDerivedMetadata(t *testing.T) {
+	release := prowlarrRelease{Title: "Show.S02E03.2160p.HDR.x265"}
+	prepareProwlarrRelease(&release)
+	if release.parsedCandidate == nil {
+		t.Fatal("expected parsed candidate")
+	}
+	if release.parsedCandidate.Resolution != "2160p" {
+		t.Fatalf("resolution = %q, want 2160p", release.parsedCandidate.Resolution)
+	}
+	if !containsEpisodeReleaseKey(release.Title, 2, 3) {
+		t.Fatal("expected cached episode key to match")
+	}
+}
+
 func TestNormalizeReleaseTitle(t *testing.T) {
 	tests := map[string]struct {
 		wantTitle string

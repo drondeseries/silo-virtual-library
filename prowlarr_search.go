@@ -32,16 +32,30 @@ var searchHTTPClient = newRestrictedRedirectHTTPClient(20 * time.Second)
 
 // prowlarrRelease is one result from Prowlarr's /api/v1/search endpoint.
 type prowlarrRelease struct {
-	GUID        string `json:"guid"`
-	Title       string `json:"title"`
-	Size        int64  `json:"size"`
-	Indexer     string `json:"indexer"`
-	IndexerID   int    `json:"indexerId"`
-	IMDbID      int64  `json:"imdbId"`
-	TMDBID      int64  `json:"tmdbId"`
-	TVDBID      int64  `json:"tvdbId"`
-	PublishDate string `json:"publishDate"`
-	DownloadURL string `json:"downloadUrl"`
+	GUID            string              `json:"guid"`
+	Title           string              `json:"title"`
+	Size            int64               `json:"size"`
+	Indexer         string              `json:"indexer"`
+	IndexerID       int                 `json:"indexerId"`
+	IMDbID          int64               `json:"imdbId"`
+	TMDBID          int64               `json:"tmdbId"`
+	TVDBID          int64               `json:"tvdbId"`
+	PublishDate     string              `json:"publishDate"`
+	DownloadURL     string              `json:"downloadUrl"`
+	parsedCandidate *StreamCandidate    `json:"-"`
+	episodeKeys     []episodeReleaseKey `json:"-"`
+	normalizedTitle string              `json:"-"`
+}
+
+func prepareProwlarrRelease(release *prowlarrRelease) {
+	if release == nil {
+		return
+	}
+	candidate := StreamCandidate{Name: release.Title, Title: release.Title, URL: release.DownloadURL}
+	parseStreamDetails(&candidate)
+	release.parsedCandidate = &candidate
+	release.episodeKeys = episodeReleaseKeys(release.Title)
+	release.normalizedTitle, _ = normalizeReleaseTitle(release.Title)
 }
 
 // prowlarrSearchClient holds a cached snapshot of Prowlarr's recent releases
@@ -123,6 +137,9 @@ func (c *prowlarrSearchClient) ConfigureIndexFile(path string) error {
 	if err := json.Unmarshal(data, &releases); err != nil {
 		return fmt.Errorf("decode Prowlarr index: %w", err)
 	}
+	for i := range releases {
+		prepareProwlarrRelease(&releases[i])
+	}
 	c.releases = pruneProwlarrReleases(releases, time.Now())
 	return nil
 }
@@ -176,7 +193,14 @@ func (c *prowlarrSearchClient) search(ctx context.Context, item monitoredMedia) 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("Prowlarr search returned status %d", resp.StatusCode)
 	}
-	return parseProwlarrSearch(io.LimitReader(resp.Body, maxSearchBodyBytes+1))
+	releases, err := parseProwlarrSearch(io.LimitReader(resp.Body, maxSearchBodyBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	for i := range releases {
+		prepareProwlarrRelease(&releases[i])
+	}
+	return releases, nil
 }
 
 func (c *prowlarrSearchClient) Stale() bool {
@@ -255,6 +279,7 @@ func releaseKey(release prowlarrRelease) string {
 func mergeProwlarrReleases(existing, incoming []prowlarrRelease, now time.Time) []prowlarrRelease {
 	byKey := make(map[string]prowlarrRelease, len(existing)+len(incoming))
 	for _, release := range append(append([]prowlarrRelease(nil), existing...), incoming...) {
+		prepareProwlarrRelease(&release)
 		byKey[releaseKey(release)] = release
 	}
 	merged := make([]prowlarrRelease, 0, len(byKey))
@@ -338,6 +363,32 @@ var prowlarrTagPattern = regexp.MustCompile(`(?i)\b(2160p|1080p|720p|480p|4k|uhd
 var prowlarrCleanPattern = regexp.MustCompile(`[^a-z0-9]+`)
 var prowlarrYearPattern = regexp.MustCompile(`\b(19|20)\d{2}\b`)
 
+var episodeReleasePattern = regexp.MustCompile(`(?i)(?:s([0-9]{1,3})e([0-9]{1,3})|([0-9]{1,3})x([0-9]{1,3})|season[ ._-]*([0-9]{1,3})[ ._-]*episode[ ._-]*([0-9]{1,3}))`)
+
+type episodeReleaseKey struct {
+	season  int
+	episode int
+}
+
+func episodeReleaseKeys(title string) []episodeReleaseKey {
+	matches := episodeReleasePattern.FindAllStringSubmatch(title, -1)
+	keys := make([]episodeReleaseKey, 0, len(matches))
+	for _, match := range matches {
+		values := [][2]int{{1, 2}, {3, 4}, {5, 6}}
+		for _, pair := range values {
+			if match[pair[0]] == "" || match[pair[1]] == "" {
+				continue
+			}
+			season, seasonErr := strconv.Atoi(match[pair[0]])
+			episode, episodeErr := strconv.Atoi(match[pair[1]])
+			if seasonErr == nil && episodeErr == nil && season > 0 && episode > 0 {
+				keys = append(keys, episodeReleaseKey{season: season, episode: episode})
+			}
+		}
+	}
+	return keys
+}
+
 func normalizeReleaseTitle(raw string) (title string, year int) {
 	s := prowlarrSepPattern.ReplaceAllString(raw, " ")
 	s = prowlarrTagPattern.ReplaceAllString(s, "")
@@ -358,6 +409,19 @@ func normalizeReleaseTitle(raw string) (title string, year int) {
 	return strings.TrimSpace(cleaned), year
 }
 
+func normalizedReleaseTitles(releases []prowlarrRelease) map[string]string {
+	result := make(map[string]string, len(releases))
+	for _, release := range releases {
+		result[releaseKey(release)] = normalizedReleaseTitle(release.Title)
+	}
+	return result
+}
+
+func normalizedReleaseTitle(raw string) string {
+	title, _ := normalizeReleaseTitle(raw)
+	return title
+}
+
 // Match returns true when any release in the cached search results
 // corresponds to the monitored media. Prefers IMDb/TMDB/TVDB IDs,
 // falling back to normalized title+year comparison.
@@ -367,7 +431,7 @@ func (c *prowlarrSearchClient) Match(item monitoredMedia) bool {
 
 func (c *prowlarrSearchClient) MatchWithQuality(item monitoredMedia, quality QualityConfig) bool {
 	c.mu.Lock()
-	releases := c.releases
+	releases := append([]prowlarrRelease(nil), c.releases...)
 	c.mu.Unlock()
 	if len(releases) == 0 {
 		return false
@@ -385,7 +449,7 @@ func (c *prowlarrSearchClient) MatchEpisodeWithQuality(item monitoredMedia, epis
 		c.mu.Unlock()
 		return false
 	}
-	releases := c.releases
+	releases := append([]prowlarrRelease(nil), c.releases...)
 	c.mu.Unlock()
 	wantTitle, _ := normalizeReleaseTitle(item.Title)
 	if wantTitle == "" {
@@ -394,16 +458,31 @@ func (c *prowlarrSearchClient) MatchEpisodeWithQuality(item monitoredMedia, epis
 	wantIMDb, _ := strconv.ParseInt(item.IMDbID, 10, 64)
 	wantTMDB, _ := strconv.ParseInt(item.TMDBID, 10, 64)
 	wantTVDB, _ := strconv.ParseInt(item.TVDBID, 10, 64)
-	episodePattern := regexp.MustCompile(fmt.Sprintf(`(?i)(?:s%02de%02d|%dx%02d|season[ ._-]*%d[ ._-]*episode[ ._-]*%d)`, episode.Season, episode.Episode, episode.Season, episode.Episode, episode.Season, episode.Episode))
-	for _, release := range releases {
-		if quality.EnableProfiles && !releaseMatchesQuality(release, quality.Profiles) {
+	for i := range releases {
+		release := &releases[i]
+		if quality.EnableProfiles && !releaseMatchesQuality(*release, quality.Profiles) {
 			continue
 		}
 		if wantIMDb > 0 && release.IMDbID > 0 && wantIMDb != release.IMDbID || wantTMDB > 0 && release.TMDBID > 0 && wantTMDB != release.TMDBID || wantTVDB > 0 && release.TVDBID > 0 && wantTVDB != release.TVDBID {
 			continue
 		}
-		gotTitle, _ := normalizeReleaseTitle(release.Title)
-		if (strings.Contains(gotTitle, wantTitle) || strings.Contains(wantTitle, gotTitle)) && episodePattern.MatchString(release.Title) {
+		if release.normalizedTitle == "" {
+			prepareProwlarrRelease(release)
+		}
+		if (strings.Contains(release.normalizedTitle, wantTitle) || strings.Contains(wantTitle, release.normalizedTitle)) && hasEpisodeReleaseKey(release.episodeKeys, episode.Season, episode.Episode) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsEpisodeReleaseKey(title string, season, episode int) bool {
+	return hasEpisodeReleaseKey(episodeReleaseKeys(title), season, episode)
+}
+
+func hasEpisodeReleaseKey(keys []episodeReleaseKey, season, episode int) bool {
+	for _, key := range keys {
+		if key.season == season && key.episode == episode {
 			return true
 		}
 	}
@@ -427,8 +506,9 @@ func matchProwlarrReleasesWithQuality(releases []prowlarrRelease, item monitored
 	wantTMDB, _ := strconv.ParseInt(item.TMDBID, 10, 64)
 	wantTVDB, _ := strconv.ParseInt(item.TVDBID, 10, 64)
 
-	for _, r := range releases {
-		if quality.EnableProfiles && !releaseMatchesQuality(r, quality.Profiles) {
+	for i := range releases {
+		r := &releases[i]
+		if quality.EnableProfiles && !releaseMatchesQuality(*r, quality.Profiles) {
 			continue
 		}
 		// Fast path: direct ID match.
@@ -443,7 +523,13 @@ func matchProwlarrReleasesWithQuality(releases []prowlarrRelease, item monitored
 		}
 
 		// Fallback: title+year matching.
-		gotTitle, gotYear := normalizeReleaseTitle(r.Title)
+		if r.normalizedTitle == "" {
+			prepareProwlarrRelease(r)
+		}
+		gotTitle, gotYear := r.normalizedTitle, 0
+		if r.normalizedTitle != "" {
+			_, gotYear = normalizeReleaseTitle(r.Title)
+		}
 		if gotTitle == "" {
 			continue
 		}
@@ -466,10 +552,13 @@ func releaseMatchesQuality(release prowlarrRelease, profiles []QualityProfile) b
 	if len(profiles) == 0 {
 		return false
 	}
-	candidate := StreamCandidate{Name: release.Title, Title: release.Title, URL: release.DownloadURL}
-	parseStreamDetails(&candidate)
+	candidate := release.parsedCandidate
+	if candidate == nil {
+		prepareProwlarrRelease(&release)
+		candidate = release.parsedCandidate
+	}
 	return slicesContainsFunc(profiles, func(profile QualityProfile) bool {
-		return matchProfile(candidate, profile)
+		return matchProfile(*candidate, profile)
 	})
 }
 
