@@ -664,6 +664,12 @@ func profileByLabel(profiles []QualityProfile, label string) QualityProfile {
 	return QualityProfile{}
 }
 
+func (c *manifestStreamResolver) qualityConfig() QualityConfig {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.config.Quality
+}
+
 func candidateVariantID(candidate StreamCandidate) string {
 	// Provider URLs are temporary and commonly rotate credentials/query tokens.
 	// Hash only stable, provider-visible fields so result= handles survive a
@@ -848,6 +854,7 @@ func (s *runtimeServer) Configure(_ context.Context, request *pb.ConfigureReques
 		qc.CustomFormatPreset, _ = values["custom_format_preset"].(string)
 		qc.EnableProfiles, _ = values["enable_quality_profiles"].(bool)
 		qc.FallbackToAnyStream, _ = values["fallback_to_any_stream"].(bool)
+		qc.SingleStreamWithFailover, _ = values["single_stream_with_failover"].(bool)
 		if rawFormats, ok := values["custom_formats"]; ok {
 			data, marshalErr := json.Marshal(rawFormats)
 			if marshalErr != nil || json.Unmarshal(data, &qc.CustomFormats) != nil {

@@ -43,12 +43,13 @@ type QualityProfile struct {
 }
 
 type QualityConfig struct {
-	Preset              string           `json:"quality_preset"`
-	CustomFormatPreset  string           `json:"custom_format_preset"`
-	EnableProfiles      bool             `json:"enable_quality_profiles"`
-	Profiles            []QualityProfile `json:"quality_profiles"`
-	CustomFormats       []CustomFormat   `json:"custom_formats"`
-	FallbackToAnyStream bool             `json:"fallback_to_any_stream"`
+	Preset                   string           `json:"quality_preset"`
+	CustomFormatPreset       string           `json:"custom_format_preset"`
+	EnableProfiles           bool             `json:"enable_quality_profiles"`
+	Profiles                 []QualityProfile `json:"quality_profiles"`
+	CustomFormats            []CustomFormat   `json:"custom_formats"`
+	FallbackToAnyStream      bool             `json:"fallback_to_any_stream"`
+	SingleStreamWithFailover bool             `json:"single_stream_with_failover"`
 }
 
 const defaultQualityPreset = "custom"

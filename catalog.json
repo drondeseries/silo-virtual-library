@@ -3,7 +3,7 @@
     {
       "manifest": {
         "plugin_id": "com.drondeseries.silo-virtual-library",
-        "version": "0.4.87",
+        "version": "0.4.88",
         "silo_api_version": "v1",
         "capabilities": [
           {
@@ -76,7 +76,7 @@
           "display_name": "Silo Virtual Library",
           "summary": "Zero-storage virtual playback backed by dynamic streaming provider resolution.",
           "description_markdown": "Registers and resolves host-managed `virtual://` virtual media through Silo's authenticated plugin control plane, without database credentials or stored media files.",
-          "setup_markdown": "Before enabling the request integration, enter the complete secret streaming provider manifest URL and pick one Movies library and one Series library from the host’s library list. Add an optional TMDB token for authoritative worldwide digital/physical release gating. No database URL or media path is required.",
+          "setup_markdown": "Before enabling the request integration, enter the complete secret streaming provider manifest URL and pick one Movies library and one Series library from the host\u2019s library list. Add an optional TMDB token for authoritative worldwide digital/physical release gating. No database URL or media path is required.",
           "homepage_url": "https://github.com/drondeseries/silo-virtual-library",
           "source_url": "https://github.com/drondeseries/silo-virtual-library",
           "support_url": "https://github.com/drondeseries/silo-virtual-library/issues",
@@ -104,14 +104,14 @@
             "key": "streaming",
             "title": "streaming provider",
             "description": "Connection to the configured streaming provider Stremio addon.",
-            "json_schema": "{\"type\":\"object\",\"properties\":{\"manifest_url\":{\"type\":\"string\",\"format\":\"uri\",\"maxLength\":4096},\"movie_library_id\":{\"type\":\"integer\",\"minimum\":1,\"default\":1},\"series_library_id\":{\"type\":\"integer\",\"minimum\":1,\"default\":2},\"tmdb_api_key\":{\"type\":\"string\",\"maxLength\":4096},\"monitor_file\":{\"type\":\"string\",\"maxLength\":4096,\"default\":\".silo-virtual-library-monitored.json\"},\"allow_insecure_http\":{\"type\":\"boolean\",\"default\":false},\"cache_ttl_minutes\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":10080,\"default\":10},\"enable_quality_profiles\":{\"type\":\"boolean\",\"default\":false},\"custom_format_preset\":{\"type\":\"string\",\"enum\":[\"custom\",\"english-original\",\"english-strict\",\"original-or-english\",\"clean-quality\",\"audio-hd\",\"repack-proper\",\"top-web-sources\",\"anime-enhanced\",\"web-tier-01\",\"web-tier-02\",\"remux-tier-01\",\"remux-tier-02\",\"trash-recommended\"],\"default\":\"custom\"},\"quality_profiles\":{\"type\":\"array\",\"maxItems\":10,\"items\":{\"type\":\"object\",\"properties\":{\"label\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":128},\"resolution\":{\"type\":\"string\",\"maxLength\":64},\"include_regex\":{\"type\":\"string\",\"maxLength\":1024},\"exclude_regex\":{\"type\":\"string\",\"maxLength\":1024},\"preferred_order\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":10000},\"codec_video\":{\"type\":\"string\",\"maxLength\":64},\"codec_audio\":{\"type\":\"string\",\"maxLength\":64},\"hdr\":{\"type\":\"string\",\"maxLength\":64},\"exclude_hdr\":{\"type\":\"string\",\"maxLength\":64}},\"required\":[\"label\"],\"additionalProperties\":false}},\"custom_formats\":{\"type\":\"array\",\"maxItems\":50,\"items\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":128},\"regex\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":1024},\"score\":{\"type\":\"integer\",\"minimum\":-10000,\"maximum\":10000},\"reject\":{\"type\":\"boolean\",\"default\":false}},\"required\":[\"name\",\"regex\"],\"additionalProperties\":false}},\"fallback_to_any_stream\":{\"type\":\"boolean\",\"default\":false},\"indexer_rss_url\":{\"type\":\"string\",\"format\":\"uri\",\"maxLength\":4096,\"description\":\"Your Prowlarr base URL (e.g. https://prowlarr.example.com). Searches all enabled indexers in one request.\"},\"indexer_api_key\":{\"type\":\"string\",\"maxLength\":4096,\"description\":\"API key for your Prowlarr instance. Leave blank if not required.\"},\"indexer_rss_check_minutes\":{\"type\":\"integer\",\"minimum\":15,\"maximum\":10080,\"default\":15,\"description\":\"How often to check Prowlarr for new releases. Minimum 15 minutes.\"},\"quality_preset\":{\"type\":\"string\",\"enum\":[\"custom\",\"balanced\",\"4k-hdr\",\"4k-dolby-vision\",\"no-dolby-vision\",\"no-hdr\",\"compatibility\",\"anime\"],\"default\":\"custom\"},\"prowlarr_index_file\":{\"type\":\"string\",\"maxLength\":4096,\"default\":\".silo-virtual-library-prowlarr-index.json\"}},\"required\":[\"manifest_url\"],\"additionalProperties\":false}",
+            "json_schema": "{\"type\":\"object\",\"properties\":{\"manifest_url\":{\"type\":\"string\",\"format\":\"uri\",\"maxLength\":4096},\"movie_library_id\":{\"type\":\"integer\",\"minimum\":1,\"default\":1},\"series_library_id\":{\"type\":\"integer\",\"minimum\":1,\"default\":2},\"tmdb_api_key\":{\"type\":\"string\",\"maxLength\":4096},\"monitor_file\":{\"type\":\"string\",\"maxLength\":4096,\"default\":\".silo-virtual-library-monitored.json\"},\"allow_insecure_http\":{\"type\":\"boolean\",\"default\":false},\"cache_ttl_minutes\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":10080,\"default\":10},\"enable_quality_profiles\":{\"type\":\"boolean\",\"default\":false},\"custom_format_preset\":{\"type\":\"string\",\"enum\":[\"custom\",\"english-original\",\"english-strict\",\"original-or-english\",\"clean-quality\",\"audio-hd\",\"repack-proper\",\"top-web-sources\",\"anime-enhanced\",\"web-tier-01\",\"web-tier-02\",\"remux-tier-01\",\"remux-tier-02\",\"trash-recommended\"],\"default\":\"custom\"},\"quality_profiles\":{\"type\":\"array\",\"maxItems\":10,\"items\":{\"type\":\"object\",\"properties\":{\"label\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":128},\"resolution\":{\"type\":\"string\",\"maxLength\":64},\"include_regex\":{\"type\":\"string\",\"maxLength\":1024},\"exclude_regex\":{\"type\":\"string\",\"maxLength\":1024},\"preferred_order\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":10000},\"codec_video\":{\"type\":\"string\",\"maxLength\":64},\"codec_audio\":{\"type\":\"string\",\"maxLength\":64},\"hdr\":{\"type\":\"string\",\"maxLength\":64},\"exclude_hdr\":{\"type\":\"string\",\"maxLength\":64}},\"required\":[\"label\"],\"additionalProperties\":false}},\"custom_formats\":{\"type\":\"array\",\"maxItems\":50,\"items\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":128},\"regex\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":1024},\"score\":{\"type\":\"integer\",\"minimum\":-10000,\"maximum\":10000},\"reject\":{\"type\":\"boolean\",\"default\":false}},\"required\":[\"name\",\"regex\"],\"additionalProperties\":false}},\"fallback_to_any_stream\":{\"type\":\"boolean\",\"default\":false},\"indexer_rss_url\":{\"type\":\"string\",\"format\":\"uri\",\"maxLength\":4096,\"description\":\"Your Prowlarr base URL (e.g. https://prowlarr.example.com). Searches all enabled indexers in one request.\"},\"indexer_api_key\":{\"type\":\"string\",\"maxLength\":4096,\"description\":\"API key for your Prowlarr instance. Leave blank if not required.\"},\"indexer_rss_check_minutes\":{\"type\":\"integer\",\"minimum\":15,\"maximum\":10080,\"default\":15,\"description\":\"How often to check Prowlarr for new releases. Minimum 15 minutes.\"},\"quality_preset\":{\"type\":\"string\",\"enum\":[\"custom\",\"balanced\",\"4k-hdr\",\"4k-dolby-vision\",\"no-dolby-vision\",\"no-hdr\",\"compatibility\",\"anime\"],\"default\":\"custom\"},\"prowlarr_index_file\":{\"type\":\"string\",\"maxLength\":4096,\"default\":\".silo-virtual-library-prowlarr-index.json\"},\"single_stream_with_failover\":{\"type\":\"boolean\",\"default\":false}},\"required\":[\"manifest_url\"],\"additionalProperties\":false}",
             "required": true,
             "admin_form": {
               "fields": [
                 {
                   "key": "movie_library_id",
                   "label": "Movies Library",
-                  "description": "Destination Silo Movies library. Need one? Create it at [Settings -> Libraries](/admin/libraries) and use the \"Add Virtual\" button on the Folders tab — no local storage required.",
+                  "description": "Destination Silo Movies library. Need one? Create it at [Settings -> Libraries](/admin/libraries) and use the \"Add Virtual\" button on the Folders tab \u2014 no local storage required.",
                   "control": 6,
                   "dynamic_options": true,
                   "required": false
@@ -119,7 +119,7 @@
                 {
                   "key": "series_library_id",
                   "label": "Series Library",
-                  "description": "Destination Silo Series library. Need one? Create it at [Settings -> Libraries](/admin/libraries) and use the \"Add Virtual\" button on the Folders tab — no local storage required.",
+                  "description": "Destination Silo Series library. Need one? Create it at [Settings -> Libraries](/admin/libraries) and use the \"Add Virtual\" button on the Folders tab \u2014 no local storage required.",
                   "control": 6,
                   "dynamic_options": true,
                   "required": false
@@ -129,7 +129,7 @@
                   "label": "Manifest URL",
                   "description": "Full streaming provider manifest URL (e.g. AIOStreams, StreamNZB, or any Stremio-compatible addon). Must include the full tokenized path ending in /manifest.json.",
                   "control": 3,
-                  "placeholder": "https://…/manifest.json",
+                  "placeholder": "https://\u2026/manifest.json",
                   "required": true,
                   "secret": true
                 },
@@ -142,7 +142,7 @@
                 {
                   "key": "cache_ttl_minutes",
                   "label": "Candidate Cache TTL (minutes)",
-                  "description": "How long stream candidates are cached before re-fetching from the provider (1–10080 minutes). Lower = fresher results, higher = faster playback.",
+                  "description": "How long stream candidates are cached before re-fetching from the provider (1\u201310080 minutes). Lower = fresher results, higher = faster playback.",
                   "control": 4,
                   "placeholder": "10"
                 },

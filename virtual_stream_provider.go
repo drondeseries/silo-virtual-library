@@ -78,6 +78,7 @@ func (s *virtualStreamProvider) ResolveVirtualStream(ctx context.Context, req *p
 		}}, nil
 	}
 	candidates = s.resolver.SelectCandidates(path, candidates)
+	quality := s.resolver.qualityConfig()
 	resultMetadata, metadataErr := structpb.NewStruct(map[string]any{"cache_ttl_seconds": float64(s.resolver.cacheTTLSeconds())})
 	if metadataErr != nil {
 		return nil, fmt.Errorf("build stream result metadata: %w", metadataErr)
@@ -85,6 +86,9 @@ func (s *virtualStreamProvider) ResolveVirtualStream(ctx context.Context, req *p
 	result := &pb.VirtualStreamResult{ResultId: path, ProviderId: virtualStreamProviderID, Metadata: resultMetadata, Availability: &pb.VirtualStreamAvailability{State: pb.VirtualStreamAvailabilityState_VIRTUAL_STREAM_AVAILABILITY_STATE_AVAILABLE}}
 	for rank, candidate := range candidates {
 		candidateMetadata := map[string]any{}
+		if quality.SingleStreamWithFailover {
+			candidateMetadata["visible"] = rank == 0
+		}
 		if displayName := candidateDisplayName(candidate); displayName != "" {
 			candidateMetadata["display_name"] = displayName
 		}
