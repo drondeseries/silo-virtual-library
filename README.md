@@ -31,13 +31,17 @@ When Virtual Library is selected as a request connection, compatible Silo builds
 
 ## Requests and monitored media
 
-The `request_router.v1` capability checks release availability before reporting a request complete. Movies use TMDB digital/physical release dates across every returned market when a TMDB token and ID are available; theatrical-only titles remain queued. Cinemeta supplies the conservative fallback release date. Once home-media availability is established, Silo registers the item immediately without waiting for streaming provider discovery.
+The `request_router.v1` capability checks release availability before reporting a request complete. Movies use TMDB digital/physical release dates across every returned market when a TMDB token and ID are available; theatrical-only titles remain queued. Cinemeta supplies the conservative fallback release date, including a 90-day theatrical window for catalog titles without explicit home-media dates. Metadata-provider outages fail closed: affected titles stay queued and are rechecked on the next monitor pass rather than being registered on a guessed date. Once home-media availability is established, Silo registers the item immediately without waiting for streaming provider discovery.
+
+Titles whose tracked release date is still in the future resolve as explicitly unavailable: playback returns a result-level "airs <date>" status instead of a source, so nothing broken appears in the player. Streams appear automatically once the air date passes.
 
 Items that are upcoming or theatrical-only are persisted in the configured monitored queue file. The `monitor-media` scheduled task rechecks release metadata. Silo's subsequent request-status poll observes `completed` once the title has a digital or physical release. Configure a writable absolute queue path for deployments whose plugin working directory is ephemeral.
 
 Registration and collection sync never contact the streaming provider. When the user presses Play, the plugin makes one stream request for that movie or episode, caches the complete response briefly, and Silo exposes the matching profile plus additional results without repeating the provider request. Future episodes of an ongoing series are added on schedule without prewarming.
 
 Provider candidates are cached for 10 minutes by default. Set **Candidate Cache TTL (minutes)** from 1 to 10080 (seven days) to tune freshness versus provider load. A playback request can explicitly set `force_refresh` to bypass this cache; no provider URLs or credentials are persisted.
+
+Series release schedules are refreshed from TVmaze in the background. **Schedule Refresh Interval (minutes)** (30–10080, default 360) controls the cadence; changes apply after plugin restart. The Release Desk admin page shows upcoming air dates per tracked show and a manual refresh button. TVmaze requests are rate-limited internally, and sync passes are capped at 90 seconds so they never exceed Silo's scheduled-task deadline.
 
 Movie runtimes come from TMDB movie details when configured, with Cinemeta as fallback. Episode runtimes come from Cinemeta or TVMaze. Silo stores the canonical runtime before playback so growing HLS playlists do not make the seek bar expand second by second.
 
