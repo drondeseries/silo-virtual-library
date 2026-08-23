@@ -517,9 +517,12 @@ func (m *mediaMonitor) evaluate(ctx context.Context, item monitoredMedia) (monit
 					}
 				}
 			}
-			m.releaseStore.SetShow(item.IMDbID, &release.ShowSchedule{
+			// Seed the store only when the scheduler has not yet written an
+			// authoritative TVmaze schedule for this show; never overwrite a
+			// real status (e.g. "Ended") with monitor-local guesses.
+			m.releaseStore.SetShowIfAbsent(item.IMDbID, &release.ShowSchedule{
 				IMDBID:      item.IMDbID,
-				Status:      "Running",
+				Status:      "Monitoring",
 				NextAirDate: nextAir,
 				Episodes:    epMap,
 			})

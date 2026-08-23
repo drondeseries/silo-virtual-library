@@ -81,6 +81,33 @@ func (s *ReleaseStore) SetShow(imdbID string, schedule *ShowSchedule) {
 	s.shows[key] = &scheduleCopy
 }
 
+// SetShowIfAbsent inserts a show schedule only when no entry exists yet,
+// returning the effective schedule afterwards. The scheduler is the
+// authoritative writer of show statuses; this lets secondary sources seed a
+// first guess without clobbering authoritative TVmaze state.
+func (s *ReleaseStore) SetShowIfAbsent(imdbID string, schedule *ShowSchedule) (*ShowSchedule, bool) {
+	key := normalizeID(imdbID)
+	if key == "" || schedule == nil {
+		return nil, false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if existing, ok := s.shows[key]; ok && existing != nil {
+		cloned := *existing
+		cloned.Episodes = make(map[string]EpisodeInfo, len(existing.Episodes))
+		for k, v := range existing.Episodes {
+			cloned.Episodes[k] = v
+		}
+		return &cloned, false
+	}
+	scheduleCopy := *schedule
+	scheduleCopy.IMDBID = key
+	scheduleCopy.UpdatedAt = time.Now().UTC()
+	s.shows[key] = &scheduleCopy
+	inserted := scheduleCopy
+	return &inserted, true
+}
+
 // SetMovie updates or inserts a movie release date.
 func (s *ReleaseStore) SetMovie(imdbID string, releaseDate time.Time) {
 	key := normalizeID(imdbID)

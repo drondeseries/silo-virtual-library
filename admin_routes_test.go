@@ -102,4 +102,3 @@ func TestAdminScheduleJSONAndRefresh(t *testing.T) {
 		t.Fatalf("expected 403 for non-admin, got resp=%v, err=%v", forbiddenResp, err)
 	}
 }
-

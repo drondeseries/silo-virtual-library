@@ -14,6 +14,14 @@ import (
 
 const (
 	defaultSchedulerInterval = 6 * time.Hour
+	minSchedulerInterval     = 30 * time.Minute
+	maxSchedulerInterval     = 10080 * time.Minute
+	// refreshWorkerCount bounds concurrent TVmaze lookups so a manual
+	// refresh cannot stampede the provider regardless of library size.
+	refreshWorkerCount = 4
+	// refreshOverallDeadline caps every sync pass well under the host's
+	// two-minute scheduled-task gRPC deadline (handshake.go).
+	refreshOverallDeadline = 90 * time.Second
 )
 
 // ShowProviderFunc provides a list of IMDb IDs currently tracked by the system.
@@ -25,12 +33,17 @@ type Scheduler struct {
 	client       *MetadataClient
 	interval     time.Duration
 	showProvider ShowProviderFunc
-	stopCh       chan struct{}
-	running      bool
-	mu           sync.Mutex
+	catalogPath  string
+
+	syncMu  sync.Mutex // singleflight: one sync pass at a time
+	mu      sync.Mutex // guards mutable fields below
+	stopCh  chan struct{}
+	running bool
 }
 
-// NewScheduler creates a new background release scheduler.
+// NewScheduler creates a new background release scheduler. Any positive
+// interval is honored; configuration-supplied values are clamped by
+// SetInterval.
 func NewScheduler(store *ReleaseStore, client *MetadataClient, interval time.Duration) *Scheduler {
 	if interval <= 0 {
 		interval = defaultSchedulerInterval
@@ -43,6 +56,16 @@ func NewScheduler(store *ReleaseStore, client *MetadataClient, interval time.Dur
 	}
 }
 
+func clampInterval(interval time.Duration) time.Duration {
+	if interval < minSchedulerInterval {
+		return defaultSchedulerInterval
+	}
+	if interval > maxSchedulerInterval {
+		return maxSchedulerInterval
+	}
+	return interval
+}
+
 // SetShowProvider configures a dynamic provider for tracked show IMDb IDs.
 func (s *Scheduler) SetShowProvider(provider ShowProviderFunc) {
 	s.mu.Lock()
@@ -50,21 +73,46 @@ func (s *Scheduler) SetShowProvider(provider ShowProviderFunc) {
 	s.showProvider = provider
 }
 
-// Start begins background scheduling. It runs an immediate check and then ticks at the configured interval.
+// SetCatalogPath points the scheduler at the monitor queue file resolved by
+// Configure. It is safe to call before Start and between ticks.
+func (s *Scheduler) SetCatalogPath(path string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.catalogPath = strings.TrimSpace(path)
+}
+
+// SetInterval adjusts the tick cadence. Values apply the next time the
+// scheduler starts; a running scheduler keeps its current cadence until
+// restarted by the host.
+func (s *Scheduler) SetInterval(interval time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if interval > 0 {
+		s.interval = clampInterval(interval)
+	}
+}
+
+// Start begins background scheduling. It runs an immediate check and then
+// ticks at the configured interval.
 func (s *Scheduler) Start(ctx context.Context, catalogPath string) {
+	if catalogPath != "" {
+		s.SetCatalogPath(catalogPath)
+	}
 	s.mu.Lock()
 	if s.running {
 		s.mu.Unlock()
 		return
 	}
 	s.running = true
-	s.stopCh = make(chan struct{})
+	stop := make(chan struct{})
+	s.stopCh = stop
+	interval := s.interval
 	s.mu.Unlock()
 
 	// Initial sync pass
-	s.runSync(ctx, catalogPath, false)
+	s.runSync(ctx, false)
 
-	ticker := time.NewTicker(s.interval)
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
@@ -74,13 +122,13 @@ func (s *Scheduler) Start(ctx context.Context, catalogPath string) {
 			s.running = false
 			s.mu.Unlock()
 			return
-		case <-s.stopCh:
+		case <-stop:
 			s.mu.Lock()
 			s.running = false
 			s.mu.Unlock()
 			return
 		case <-ticker.C:
-			s.runSync(ctx, catalogPath, false)
+			s.runSync(ctx, false)
 		}
 	}
 }
@@ -95,9 +143,10 @@ func (s *Scheduler) Stop() {
 	}
 }
 
-// RefreshAll triggers an immediate manual refresh of all tracked shows, regardless of status.
+// RefreshAll triggers an immediate manual refresh of all tracked shows,
+// regardless of status.
 func (s *Scheduler) RefreshAll(ctx context.Context) error {
-	return s.runSync(ctx, "", true)
+	return s.runSync(ctx, true)
 }
 
 // RefreshShow refreshes release metadata for a specific show.
@@ -112,70 +161,118 @@ func (s *Scheduler) RefreshShow(ctx context.Context, imdbID string) error {
 		return fmt.Errorf("fetch metadata for %s: %w", cleanID, err)
 	}
 
-	schedule := &ShowSchedule{
+	s.store.SetShow(cleanID, &ShowSchedule{
 		IMDBID:      cleanID,
 		Status:      meta.Status,
 		NextAirDate: meta.NextAirDate,
 		Episodes:    meta.Episodes,
-	}
-	s.store.SetShow(cleanID, schedule)
+	})
 	return nil
 }
 
-func (s *Scheduler) runSync(ctx context.Context, catalogPath string, forceAll bool) error {
-	ids := s.collectShowIDs(ctx, catalogPath)
+// runSync refreshes every tracked show that is due. Passes are serialized
+// (manual refresh cannot overlap the periodic tick), bounded by a worker
+// pool, and capped by an overall deadline so neither the admin endpoint nor
+// the scheduled task can hang past the host deadline.
+func (s *Scheduler) runSync(ctx context.Context, forceAll bool) error {
+	s.syncMu.Lock()
+	defer s.syncMu.Unlock()
+
+	syncCtx, cancel := context.WithTimeout(ctx, refreshOverallDeadline)
+	defer cancel()
+
+	ids := s.collectShowIDs(syncCtx)
 	if len(ids) == 0 {
 		return nil
 	}
 
+	due := make([]string, 0, len(ids))
 	now := time.Now()
-	var errs []error
-
 	for _, id := range ids {
-		if ctx.Err() != nil {
-			return ctx.Err()
+		if syncCtx.Err() != nil {
+			break
 		}
-
 		cleanID := normalizeID(id)
-		if cleanID == "" {
+		if cleanID == "" || (!forceAll && !s.showDue(cleanID, now)) {
 			continue
 		}
+		due = append(due, cleanID)
+	}
+	if len(due) == 0 {
+		return nil
+	}
 
-		if !forceAll {
-			// Check if we can skip updating this show
-			if existing, ok := s.store.GetShow(cleanID); ok && existing != nil {
-				isEnded := strings.EqualFold(existing.Status, "Ended")
-				if isEnded && (existing.NextAirDate == nil || existing.NextAirDate.Before(now)) {
-					continue
-				}
-				if existing.NextAirDate != nil && existing.NextAirDate.After(now) {
-					continue
+	jobs := make(chan string)
+	errCh := make(chan error, len(due))
+	var wg sync.WaitGroup
+	workers := refreshWorkerCount
+	if workers > len(due) {
+		workers = len(due)
+	}
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for id := range jobs {
+				if err := s.fetchAndStore(syncCtx, id); err != nil {
+					errCh <- err
 				}
 			}
-		}
-
-		meta, err := s.client.FetchShowMetadata(ctx, cleanID)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("fetch metadata for %s: %w", cleanID, err))
-			continue
-		}
-
-		schedule := &ShowSchedule{
-			IMDBID:      cleanID,
-			Status:      meta.Status,
-			NextAirDate: meta.NextAirDate,
-			Episodes:    meta.Episodes,
-		}
-		s.store.SetShow(cleanID, schedule)
+		}()
 	}
-
-	if len(errs) > 0 {
-		return fmt.Errorf("encountered %d errors during release sync: %v", len(errs), errs[0])
+	for _, id := range due {
+		if syncCtx.Err() != nil {
+			break
+		}
+		jobs <- id
 	}
+	close(jobs)
+	wg.Wait()
+	close(errCh)
+
+	var errs []error
+	for err := range errCh {
+		errs = append(errs, err)
+	}
+	if syncCtx.Err() != nil && !errors.Is(syncCtx.Err(), context.Canceled) || ctx.Err() != nil {
+		errs = append(errs, fmt.Errorf("release sync stopped early: %w", syncCtx.Err()))
+	}
+	return errors.Join(errs...)
+}
+
+// showDue reports whether a show needs refetching: ended shows whose last
+// known air date has passed are skipped, and shows with a known future air
+// date are skipped until it arrives. Unknown statuses refresh normally.
+func (s *Scheduler) showDue(id string, now time.Time) bool {
+	existing, ok := s.store.GetShow(id)
+	if !ok || existing == nil {
+		return true
+	}
+	isEnded := strings.EqualFold(existing.Status, "Ended")
+	if isEnded && (existing.NextAirDate == nil || existing.NextAirDate.Before(now)) {
+		return false
+	}
+	if existing.NextAirDate != nil && existing.NextAirDate.After(now) {
+		return false
+	}
+	return true
+}
+
+func (s *Scheduler) fetchAndStore(ctx context.Context, cleanID string) error {
+	meta, err := s.client.FetchShowMetadata(ctx, cleanID)
+	if err != nil {
+		return fmt.Errorf("fetch metadata for %s: %w", cleanID, err)
+	}
+	s.store.SetShow(cleanID, &ShowSchedule{
+		IMDBID:      cleanID,
+		Status:      meta.Status,
+		NextAirDate: meta.NextAirDate,
+		Episodes:    meta.Episodes,
+	})
 	return nil
 }
 
-func (s *Scheduler) collectShowIDs(ctx context.Context, catalogPath string) []string {
+func (s *Scheduler) collectShowIDs(ctx context.Context) []string {
 	seen := make(map[string]struct{})
 	var result []string
 
@@ -199,6 +296,7 @@ func (s *Scheduler) collectShowIDs(ctx context.Context, catalogPath string) []st
 	// 2. From provider
 	s.mu.Lock()
 	provider := s.showProvider
+	path := s.catalogPath
 	s.mu.Unlock()
 	if provider != nil {
 		if providerIDs, err := provider(ctx); err == nil {
@@ -208,9 +306,9 @@ func (s *Scheduler) collectShowIDs(ctx context.Context, catalogPath string) []st
 		}
 	}
 
-	// 3. From catalog/monitor file if exists
-	if catalogPath != "" {
-		if file, err := os.Open(catalogPath); err == nil {
+	// 3. From the configured monitor queue file, if reachable
+	if path != "" {
+		if file, err := os.Open(path); err == nil {
 			defer file.Close()
 			var items []struct {
 				Key       string `json:"key"`

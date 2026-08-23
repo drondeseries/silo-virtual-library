@@ -703,4 +703,3 @@ func TestManifestStreamResolver_UnreleasedShortCircuit(t *testing.T) {
 		t.Fatalf("released movie should reach provider path, got: %v", passErr)
 	}
 }
-

@@ -957,6 +957,12 @@ func (s *runtimeServer) Configure(_ context.Context, request *pb.ConfigureReques
 		if err != nil {
 			return nil, err
 		}
+		if s.scheduler != nil {
+			s.scheduler.SetCatalogPath(monitorFile)
+			if minutes, ok := entry.GetValue().AsMap()["schedule_refresh_minutes"].(float64); ok && minutes > 0 {
+				s.scheduler.SetInterval(time.Duration(minutes) * time.Minute)
+			}
+		}
 		library, err := newSiloLibrary(sdkruntime.Host(), movieLibraryID, seriesLibraryID, s.resolver)
 		if err != nil {
 			return nil, err

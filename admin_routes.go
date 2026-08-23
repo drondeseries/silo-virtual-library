@@ -161,10 +161,12 @@ func (a *adminRoutes) scheduleJSON() (*pb.HandleHTTPResponse, error) {
 }
 
 func (a *adminRoutes) refreshSchedule(ctx context.Context) (*pb.HandleHTTPResponse, error) {
-	if a.server == nil || a.server.scheduler == nil {
+	if a.server == nil || a.server.scheduler == nil || a.server.releaseStore == nil {
 		return adminJSON(http.StatusBadRequest, map[string]string{"error": "release scheduler is not configured"})
 	}
-	if err := a.server.scheduler.RefreshAll(ctx); err != nil {
+	refreshCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	defer cancel()
+	if err := a.server.scheduler.RefreshAll(refreshCtx); err != nil {
 		return adminJSON(http.StatusBadGateway, map[string]string{"error": redactError(err)})
 	}
 	summary := a.server.releaseStore.GetScheduleSummary()
