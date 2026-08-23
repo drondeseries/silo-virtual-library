@@ -20,6 +20,7 @@ import (
 
 	pb "github.com/Silo-Server/silo-plugin-sdk/pkg/pluginproto/silo/plugin/v1"
 	sdkruntime "github.com/Silo-Server/silo-plugin-sdk/pkg/pluginsdk/runtime"
+	"github.com/drondeseries/silo-virtual-library/pkg/release"
 	"github.com/hashicorp/go-hclog"
 	"google.golang.org/protobuf/types/known/structpb"
 )
@@ -78,14 +79,15 @@ type virtualEpisode struct {
 	Available bool      `json:"available,omitempty"`
 }
 type mediaMonitor struct {
-	mu         sync.Mutex
-	resolver   streamResolver
-	logger     hclog.Logger
-	config     monitorConfig
-	items      map[string]monitoredMedia
-	registrar  virtualMediaRegistrar
-	prowlarr   *prowlarrSearchClient
-	registered map[string]struct{}
+	mu           sync.Mutex
+	resolver     streamResolver
+	logger       hclog.Logger
+	config       monitorConfig
+	items        map[string]monitoredMedia
+	registrar    virtualMediaRegistrar
+	prowlarr     *prowlarrSearchClient
+	registered   map[string]struct{}
+	releaseStore *release.ReleaseStore
 }
 
 type virtualMediaLister interface {
@@ -461,6 +463,9 @@ func (m *mediaMonitor) evaluate(ctx context.Context, item monitoredMedia) (monit
 			return item, "Release metadata unavailable; monitoring will retry", err
 		}
 		item.Release = release
+		if m.releaseStore != nil && item.IMDbID != "" && !release.IsZero() {
+			m.releaseStore.SetMovie(item.IMDbID, release)
+		}
 		if item.Force {
 			item.Ready = true
 			return item, "Movie force-added by administrator", nil
@@ -494,6 +499,31 @@ func (m *mediaMonitor) evaluate(ctx context.Context, item monitoredMedia) (monit
 			}
 		}
 		item.Episodes = episodes
+		if m.releaseStore != nil && item.IMDbID != "" {
+			epMap := make(map[string]release.EpisodeInfo, len(episodes))
+			var nextAir *time.Time
+			for _, ep := range episodes {
+				key := fmt.Sprintf("%d:%d", ep.Season, ep.Episode)
+				epMap[key] = release.EpisodeInfo{
+					Season:  ep.Season,
+					Episode: ep.Episode,
+					AirDate: ep.Released,
+					Title:   ep.Title,
+				}
+				if !ep.Released.IsZero() && ep.Released.After(now) {
+					if nextAir == nil || ep.Released.Before(*nextAir) {
+						t := ep.Released
+						nextAir = &t
+					}
+				}
+			}
+			m.releaseStore.SetShow(item.IMDbID, &release.ShowSchedule{
+				IMDBID:      item.IMDbID,
+				Status:      "Running",
+				NextAirDate: nextAir,
+				Episodes:    epMap,
+			})
+		}
 		available := 0
 		for _, episode := range episodes {
 			if episode.Available {
@@ -1152,8 +1182,8 @@ func (m *mediaMonitor) movieRelease(ctx context.Context, item monitoredMedia) (t
 	m.mu.Unlock()
 	if cfg.TMDBAPIKey != "" && item.TMDBID != "" {
 		release, err := fetchTMDBRelease(ctx, item.TMDBID, cfg.TMDBAPIKey)
-		if err == nil || errors.Is(err, errNoHomeRelease) {
-			return release, err
+		if err == nil {
+			return release, nil
 		}
 	}
 	if item.IMDbID == "" && item.TMDBID != "" && cfg.TMDBAPIKey != "" {
@@ -1162,6 +1192,9 @@ func (m *mediaMonitor) movieRelease(ctx context.Context, item monitoredMedia) (t
 		}
 	}
 	if item.IMDbID == "" {
+		if item.Year > 0 && int(item.Year) < time.Now().Year() {
+			return time.Date(int(item.Year), 1, 1, 0, 0, 0, 0, time.UTC), nil
+		}
 		return time.Time{}, errors.New("IMDb ID required for Cinemeta fallback")
 	}
 	endpoint := strings.TrimRight(cinemetaBaseURL, "/") + "/meta/movie/" + url.PathEscape(item.IMDbID) + ".json"
@@ -1169,10 +1202,16 @@ func (m *mediaMonitor) movieRelease(ctx context.Context, item monitoredMedia) (t
 	client := metadataClient
 	resp, err := client.Do(request)
 	if err != nil {
+		if item.Year > 0 && int(item.Year) < time.Now().Year() {
+			return time.Date(int(item.Year), 1, 1, 0, 0, 0, 0, time.UTC), nil
+		}
 		return time.Time{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
+		if item.Year > 0 && int(item.Year) < time.Now().Year() {
+			return time.Date(int(item.Year), 1, 1, 0, 0, 0, 0, time.UTC), nil
+		}
 		return time.Time{}, fmt.Errorf("Cinemeta HTTP %d", resp.StatusCode)
 	}
 	var payload struct {
@@ -1208,6 +1247,9 @@ func (m *mediaMonitor) movieRelease(ctx context.Context, item monitoredMedia) (t
 				return time.Time{}, errNoHomeRelease
 			}
 		}
+	}
+	if item.Year > 0 && int(item.Year) < time.Now().Year() {
+		return time.Date(int(item.Year), 1, 1, 0, 0, 0, 0, time.UTC), nil
 	}
 	return time.Time{}, errNoHomeRelease
 }
@@ -1282,6 +1324,23 @@ func fetchTMDBRelease(ctx context.Context, id, key string) (time.Time, error) {
 		}
 		if !earliest.IsZero() {
 			return earliest, nil
+		}
+	}
+	// For catalog movies without explicit Type 4/5/6 entries:
+	// If the earliest theatrical or premiere release was more than 90 days ago,
+	// presume home release.
+	var earliestTheatrical time.Time
+	for _, r := range results {
+		for _, d := range r.Dates {
+			if !d.Date.IsZero() && (earliestTheatrical.IsZero() || d.Date.Before(earliestTheatrical)) {
+				earliestTheatrical = d.Date
+			}
+		}
+	}
+	if !earliestTheatrical.IsZero() {
+		presumed := earliestTheatrical.AddDate(0, 0, 90)
+		if !presumed.After(time.Now()) {
+			return presumed, nil
 		}
 	}
 	return time.Time{}, errNoHomeRelease

@@ -16,6 +16,7 @@ import (
 	pb "github.com/Silo-Server/silo-plugin-sdk/pkg/pluginproto/silo/plugin/v1"
 	publicmanifest "github.com/Silo-Server/silo-plugin-sdk/pkg/pluginsdk/manifest"
 	"github.com/Silo-Server/silo-plugin-sdk/pkg/pluginsdk/runtimehost"
+	"github.com/drondeseries/silo-virtual-library/pkg/release"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -623,3 +624,68 @@ func TestParseStreamDetailsUsesBoundedAudioAndHDRMarkers(t *testing.T) {
 		t.Fatalf("parsed metadata = audio %q HDR %q", actual.CodecAudio, actual.HDR)
 	}
 }
+
+func TestManifestStreamResolver_UnreleasedShortCircuit(t *testing.T) {
+	upstreamCalled := false
+	client := &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		upstreamCalled = true
+		return nil, fmt.Errorf("upstream should not be contacted for unreleased media")
+	})}
+
+	store := release.NewReleaseStore()
+	futureAirDate := time.Now().Add(48 * time.Hour)
+	store.SetShow("tt1234567", &release.ShowSchedule{
+		IMDBID: "tt1234567",
+		Status: "Running",
+		Episodes: map[string]release.EpisodeInfo{
+			"1:5": {Season: 1, Episode: 5, AirDate: futureAirDate, Title: "Future Episode"},
+		},
+	})
+	store.SetMovie("tt7777777", futureAirDate)
+
+	resolver := &manifestStreamResolver{
+		client:       client,
+		releaseStore: store,
+	}
+	resolver.Configure(resolverConfig{ManifestURL: "https://stream.example/manifest.json"})
+
+	// 1. Episode unreleased check
+	candidates, mediaType, mediaID, err := resolver.GetCandidates(context.Background(), "virtual://series/tt1234567/1/5")
+	if err != nil {
+		t.Fatalf("GetCandidates unreleased episode error: %v", err)
+	}
+	if upstreamCalled {
+		t.Fatalf("upstream provider was called for unreleased episode")
+	}
+	if len(candidates) != 1 || candidates[0].Name != UnreleasedStreamName {
+		t.Fatalf("expected unreleased candidate, got: %#v", candidates)
+	}
+	if !strings.Contains(candidates[0].Title, "scheduled to air") {
+		t.Fatalf("expected title to mention scheduled air date, got: %q", candidates[0].Title)
+	}
+	if candidates[0].URL != "https://www.imdb.com/title/tt1234567" {
+		t.Fatalf("expected IMDb external URL, got: %q", candidates[0].URL)
+	}
+	if mediaType != "series" || mediaID != "tt1234567:1:5" {
+		t.Fatalf("unexpected mediaType/ID: %s, %s", mediaType, mediaID)
+	}
+
+	// 2. SelectCandidates preserves unreleased candidate
+	selected := resolver.SelectCandidates("virtual://series/tt1234567/1/5?profile=4K", candidates)
+	if len(selected) != 1 || selected[0].Name != UnreleasedStreamName {
+		t.Fatalf("SelectCandidates dropped unreleased candidate: %#v", selected)
+	}
+
+	// 3. Movie unreleased check
+	candidatesMovie, _, _, err := resolver.GetCandidates(context.Background(), "virtual://movie/tt7777777")
+	if err != nil {
+		t.Fatalf("GetCandidates unreleased movie error: %v", err)
+	}
+	if upstreamCalled {
+		t.Fatalf("upstream provider was called for unreleased movie")
+	}
+	if len(candidatesMovie) != 1 || candidatesMovie[0].Name != UnreleasedStreamName {
+		t.Fatalf("expected unreleased movie candidate, got: %#v", candidatesMovie)
+	}
+}
+

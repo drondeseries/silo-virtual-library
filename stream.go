@@ -1,11 +1,50 @@
 package main
 
 import (
+	"fmt"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
+
+const UnreleasedStreamName = "[Silo] Unreleased"
+
+func isUnreleasedCandidate(candidate StreamCandidate) bool {
+	return candidate.Name == UnreleasedStreamName
+}
+
+func buildUnreleasedCandidate(imdbID string, airDate *time.Time, itemType string) StreamCandidate {
+	cleanID := strings.TrimSpace(imdbID)
+	if idx := strings.Index(cleanID, ":"); idx != -1 {
+		cleanID = cleanID[:idx]
+	}
+	cleanID = strings.TrimPrefix(cleanID, "series:")
+	cleanID = strings.TrimPrefix(cleanID, "movie:")
+
+	formattedDate := "soon"
+	if airDate != nil && !airDate.IsZero() {
+		formattedDate = airDate.UTC().Format("2006-01-02 15:04 MST")
+	}
+
+	noun := "episode"
+	if strings.EqualFold(itemType, "movie") {
+		noun = "movie"
+	}
+
+	externalURL := "https://www.imdb.com"
+	if cleanID != "" {
+		externalURL = fmt.Sprintf("https://www.imdb.com/title/%s", cleanID)
+	}
+
+	return StreamCandidate{
+		Name:        UnreleasedStreamName,
+		Title:       fmt.Sprintf("⏳ This %s is scheduled to air on %s.\nNo streams available yet.", noun, formattedDate),
+		Description: "Unreleased Media Gate",
+		URL:         externalURL,
+	}
+}
 
 var streamSizePattern = regexp.MustCompile(`(?i)\b\d+(?:\.\d+)?\s*(?:TB|GB|MB)\b`)
 var languagePattern = regexp.MustCompile(`(?i)\b(?:eng|en|fra|fre|fr|deu|ger|de|ita|es|spa|jpn|kor|zho|chi|por|rus|ara|multi)\b`)

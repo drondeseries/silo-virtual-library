@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"html/template"
 	"net/http"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -33,6 +34,18 @@ type prowlarrReleaseResult struct {
 
 func newAdminRoutes(server *runtimeServer) *adminRoutes { return &adminRoutes{server: server} }
 
+// sensitiveQueryParamPattern strips credential-bearing query parameters so
+// upstream transport errors (which embed full URLs) can be shown to admins
+// without disclosing API keys or tokens.
+var sensitiveQueryParamPattern = regexp.MustCompile(`(?i)([?&](?:api_?key|apikey|token|secret|password|access_?token)=)[^&\s'"]+`)
+
+func redactError(err error) string {
+	if err == nil {
+		return ""
+	}
+	return sensitiveQueryParamPattern.ReplaceAllString(err.Error(), "${1}[redacted]")
+}
+
 func (a *adminRoutes) Handle(ctx context.Context, req *pb.HandleHTTPRequest) (*pb.HandleHTTPResponse, error) {
 	if req == nil || !strings.EqualFold(req.GetHeaders()["X-Silo-User-Role"], "admin") {
 		return adminJSON(http.StatusForbidden, map[string]string{"error": "admin access required"})
@@ -49,6 +62,10 @@ func (a *adminRoutes) Handle(ctx context.Context, req *pb.HandleHTTPRequest) (*p
 		return a.queueJSON()
 	case path == queuePagePath+"/calendar" && req.GetMethod() == http.MethodGet:
 		return a.calendarJSON()
+	case (path == queuePagePath+"/schedule/refresh" || path == "/admin/schedule/refresh") && req.GetMethod() == http.MethodPost:
+		return a.refreshSchedule(ctx)
+	case (path == queuePagePath+"/schedule" || path == "/admin/schedule") && req.GetMethod() == http.MethodGet:
+		return a.scheduleJSON()
 	case path == queuePagePath+"/queue/force" && req.GetMethod() == http.MethodPost:
 		return a.forceQueueItem(ctx, req.GetQuery().GetFields())
 	case path == queuePagePath+"/queue/search" && req.GetMethod() == http.MethodPost:
@@ -75,18 +92,18 @@ func (a *adminRoutes) searchQueueItem(ctx context.Context, fields map[string]*st
 	}
 	releases, err := client.SearchItem(ctx, item)
 	if err != nil {
-		return adminJSON(http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return adminJSON(http.StatusBadGateway, map[string]string{"error": redactError(err)})
 	}
 	matched := matchProwlarrReleasesWithQuality(releases, item, quality)
 	if matched {
 		item.Ready = true
 		item.Force = false
 		if err := a.server.monitor.register(ctx, item); err != nil {
-			return adminJSON(http.StatusBadGateway, map[string]string{"error": err.Error()})
+			return adminJSON(http.StatusBadGateway, map[string]string{"error": redactError(err)})
 		}
 		a.server.monitor.markRegistered(item.Key)
 		if err := a.server.monitor.remember(item); err != nil {
-			return adminJSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return adminJSON(http.StatusInternalServerError, map[string]string{"error": redactError(err)})
 		}
 	}
 	results := make([]prowlarrReleaseResult, 0, len(releases))
@@ -132,6 +149,31 @@ func (a *adminRoutes) calendarJSON() (*pb.HandleHTTPResponse, error) {
 	return adminJSON(http.StatusOK, map[string]any{"items": items, "count": len(items), "from": time.Now().UTC().Format("2006-01-02"), "to": time.Now().UTC().AddDate(0, 1, 0).Format("2006-01-02")})
 }
 
+func (a *adminRoutes) scheduleJSON() (*pb.HandleHTTPResponse, error) {
+	if a.server == nil || a.server.releaseStore == nil {
+		return adminJSON(http.StatusOK, map[string]any{
+			"count":        0,
+			"shows":        []any{},
+			"generated_at": time.Now().UTC(),
+		})
+	}
+	return adminJSON(http.StatusOK, a.server.releaseStore.GetScheduleSummary())
+}
+
+func (a *adminRoutes) refreshSchedule(ctx context.Context) (*pb.HandleHTTPResponse, error) {
+	if a.server == nil || a.server.scheduler == nil {
+		return adminJSON(http.StatusBadRequest, map[string]string{"error": "release scheduler is not configured"})
+	}
+	if err := a.server.scheduler.RefreshAll(ctx); err != nil {
+		return adminJSON(http.StatusBadGateway, map[string]string{"error": redactError(err)})
+	}
+	summary := a.server.releaseStore.GetScheduleSummary()
+	return adminJSON(http.StatusOK, map[string]any{
+		"message": "Schedule refresh completed",
+		"summary": summary,
+	})
+}
+
 func (a *adminRoutes) forceQueueItem(ctx context.Context, fields map[string]*structpb.Value) (*pb.HandleHTTPResponse, error) {
 	key := queryString(fields, "key")
 	item, ok := a.server.monitor.item(key)
@@ -141,17 +183,17 @@ func (a *adminRoutes) forceQueueItem(ctx context.Context, fields map[string]*str
 	item.Force = true
 	updated, message, evaluationErr := a.server.monitor.evaluate(ctx, item)
 	if evaluationErr != nil {
-		return adminJSON(http.StatusBadGateway, map[string]string{"error": evaluationErr.Error()})
+		return adminJSON(http.StatusBadGateway, map[string]string{"error": redactError(evaluationErr)})
 	}
 	if !updated.Ready || strings.TrimSpace(updated.Title) == "" || (updated.MediaType == "series" && len(updated.Episodes) == 0) {
 		return adminJSON(http.StatusConflict, map[string]string{"error": "metadata is not ready to register", "message": message})
 	}
 	if err := a.server.monitor.register(ctx, updated); err != nil {
-		return adminJSON(http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return adminJSON(http.StatusBadGateway, map[string]string{"error": redactError(err)})
 	}
 	a.server.monitor.markRegistered(updated.Key)
 	if err := a.server.monitor.remember(updated); err != nil {
-		return adminJSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return adminJSON(http.StatusInternalServerError, map[string]string{"error": redactError(err)})
 	}
 	return adminJSON(http.StatusOK, map[string]any{"item": updated, "message": "Media was force-added to the virtual library"})
 }
@@ -162,7 +204,7 @@ func (a *adminRoutes) removeQueueItem(fields map[string]*structpb.Value) (*pb.Ha
 		return adminJSON(http.StatusBadRequest, map[string]string{"error": "key is required"})
 	}
 	if err := a.server.monitor.forget(key); err != nil {
-		return adminJSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return adminJSON(http.StatusInternalServerError, map[string]string{"error": redactError(err)})
 	}
 	return adminJSON(http.StatusOK, map[string]string{"message": "Queue item removed"})
 }

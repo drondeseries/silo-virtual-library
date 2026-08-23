@@ -26,6 +26,7 @@ import (
 	sdkruntime "github.com/Silo-Server/silo-plugin-sdk/pkg/pluginsdk/runtime"
 	"github.com/Silo-Server/silo-plugin-sdk/pkg/pluginsdk/runtimedefault"
 	"github.com/Silo-Server/silo-plugin-sdk/pkg/pluginsdk/runtimehost"
+	"github.com/drondeseries/silo-virtual-library/pkg/release"
 	"github.com/hashicorp/go-hclog"
 )
 
@@ -102,6 +103,13 @@ type manifestStreamResolver struct {
 	cache           map[string]candidateCacheEntry
 	cacheGeneration uint64
 	cacheBytes      int64
+	releaseStore    *release.ReleaseStore
+}
+
+func (c *manifestStreamResolver) SetReleaseStore(store *release.ReleaseStore) {
+	c.mu.Lock()
+	c.releaseStore = store
+	c.mu.Unlock()
 }
 
 type candidateCacheEntry struct {
@@ -171,6 +179,9 @@ func (c *manifestStreamResolver) Resolve(ctx context.Context, virtualPath string
 // ranked candidate so the host can fail over when a temporary provider URL
 // fails. Catalog variants remain one per configured profile label.
 func (c *manifestStreamResolver) SelectCandidates(virtualPath string, candidates []StreamCandidate) []StreamCandidate {
+	if len(candidates) == 1 && isUnreleasedCandidate(candidates[0]) {
+		return cloneCandidates(candidates)
+	}
 	u, _ := url.Parse(virtualPath)
 	if u == nil {
 		return cloneCandidates(candidates)
@@ -262,6 +273,7 @@ func (c *manifestStreamResolver) getCandidates(ctx context.Context, virtualPath 
 	c.mu.RLock()
 	config := c.config
 	generation := c.generation
+	releaseStore := c.releaseStore
 	c.mu.RUnlock()
 
 	if strings.Contains(virtualPath, "refresh=1") || strings.Contains(virtualPath, "force=1") {
@@ -284,6 +296,27 @@ func (c *manifestStreamResolver) getCandidates(ctx context.Context, virtualPath 
 		mediaID, err = c.normalizeTMDBProviderID(ctx, mediaType, mediaID, config.TMDBAPIKey)
 		if err != nil {
 			return nil, mediaType, mediaID, err
+		}
+	}
+
+	// Intercept unreleased media before contacting the streaming provider
+	if releaseStore != nil {
+		imdbID := mediaID
+		season := 0
+		episode := 0
+		if mediaType == "series" {
+			parts := strings.Split(mediaID, ":")
+			if len(parts) >= 3 {
+				imdbID = parts[0]
+				season, _ = strconv.Atoi(parts[1])
+				episode, _ = strconv.Atoi(parts[2])
+			} else if len(parts) == 1 {
+				imdbID = parts[0]
+			}
+		}
+		if released, airDate := releaseStore.IsReleased(mediaType, imdbID, season, episode); !released {
+			unreleasedCandidate := buildUnreleasedCandidate(imdbID, airDate, mediaType)
+			return []StreamCandidate{unreleasedCandidate}, mediaType, mediaID, nil
 		}
 	}
 	cacheKey := mediaType + "|" + mediaID
@@ -817,11 +850,14 @@ type runtimeServer struct {
 	runtimedefault.Server
 	pb.UnimplementedRequestRouterServer
 	pb.UnimplementedScheduledTaskServer
-	configMu sync.Mutex
-	manifest *pb.PluginManifest
-	resolver *manifestStreamResolver
-	monitor  *mediaMonitor
-	library  virtualMediaRegistrar
+	configMu      sync.Mutex
+	manifest      *pb.PluginManifest
+	resolver      *manifestStreamResolver
+	monitor       *mediaMonitor
+	library       virtualMediaRegistrar
+	releaseStore  *release.ReleaseStore
+	scheduler     *release.Scheduler
+	releaseClient *release.MetadataClient
 }
 
 func (s *runtimeServer) GetManifest(context.Context, *pb.GetManifestRequest) (*pb.GetManifestResponse, error) {
@@ -941,9 +977,39 @@ func main() {
 		fmt.Fprintf(os.Stderr, "load manifest: %v\n", err)
 		os.Exit(1)
 	}
-	resolver := &manifestStreamResolver{client: newProviderHTTPClient()}
+	releaseStore := release.NewReleaseStore()
+	releaseClient := release.NewMetadataClient(metadataClient)
+	scheduler := release.NewScheduler(releaseStore, releaseClient, 6*time.Hour)
+
+	resolver := &manifestStreamResolver{
+		client:       newProviderHTTPClient(),
+		releaseStore: releaseStore,
+	}
 	monitor := newMediaMonitor(resolver, hclog.New(&hclog.LoggerOptions{Name: "silo-virtual-library-monitor"}))
-	runtime := &runtimeServer{manifest: manifest, resolver: resolver, monitor: monitor}
+	monitor.releaseStore = releaseStore
+
+	scheduler.SetShowProvider(func(ctx context.Context) ([]string, error) {
+		monitor.mu.Lock()
+		defer monitor.mu.Unlock()
+		var ids []string
+		for _, item := range monitor.items {
+			if item.MediaType == "series" && item.IMDbID != "" {
+				ids = append(ids, item.IMDbID)
+			}
+		}
+		return ids, nil
+	})
+
+	go scheduler.Start(context.Background(), resolvePluginDataPath(".silo-virtual-library-monitored.json", ".silo-virtual-library-monitored.json"))
+
+	runtime := &runtimeServer{
+		manifest:      manifest,
+		resolver:      resolver,
+		monitor:       monitor,
+		releaseStore:  releaseStore,
+		scheduler:     scheduler,
+		releaseClient: releaseClient,
+	}
 	sdkruntime.Serve(sdkruntime.ServeConfig{
 		Logger: hclog.New(&hclog.LoggerOptions{Name: "silo-virtual-library"}),
 		Servers: sdkruntime.CapabilityServers{

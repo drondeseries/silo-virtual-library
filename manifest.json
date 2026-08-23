@@ -67,6 +67,12 @@
       "method": "*",
       "path": "/admin/virtual-library/*",
       "access": "admin"
+    },
+    {
+      "id": "admin-schedule",
+      "method": "*",
+      "path": "/admin/schedule/*",
+      "access": "admin"
     }
   ],
   "presentation": {
