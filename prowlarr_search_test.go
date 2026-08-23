@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -316,4 +317,67 @@ func (r *stringReader) Read(p []byte) (n int, err error) {
 	n = copy(p, r.data[r.pos:])
 	r.pos += n
 	return n, nil
+}
+
+func TestProwlarrAuthUsesHeaderNotQuery(t *testing.T) {
+	client := newProwlarrSearchClient(nil)
+	client.Configure("http://prowlarr.local:9696", "super-secret-key", 15)
+
+	endpoint, err := client.searchURLForQuery("the matrix")
+	if err != nil {
+		t.Fatalf("searchURLForQuery: %v", err)
+	}
+	if strings.Contains(endpoint, "apikey") || strings.Contains(endpoint, "super-secret-key") {
+		t.Fatalf("search URL embeds credentials: %s", endpoint)
+	}
+
+	req, err := client.newSearchRequest(context.Background(), endpoint)
+	if err != nil {
+		t.Fatalf("newSearchRequest: %v", err)
+	}
+	if got := req.Header.Get("X-Api-Key"); got != "super-secret-key" {
+		t.Fatalf("X-Api-Key header = %q, want configured key", got)
+	}
+	if strings.Contains(req.URL.RawQuery, "apikey") {
+		t.Fatalf("query still carries apikey: %s", req.URL.RawQuery)
+	}
+}
+
+func TestProwlarrTransportErrorHidesURLAndKey(t *testing.T) {
+	failing := &http.Client{Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		return nil, &url.Error{Op: "Get", URL: "http://prowlarr.local:9696/api/v1/search?apikey=leaked-key", Err: context.DeadlineExceeded}
+	})}
+	client := newProwlarrSearchClient(failing)
+	client.Configure("http://prowlarr.local:9696", "leaked-key", 15)
+
+	item := monitoredMedia{Title: "The Matrix", MediaType: "movie"}
+	_, err := client.search(context.Background(), item)
+	if err == nil {
+		t.Fatal("expected transport error")
+	}
+	message := err.Error()
+	if strings.Contains(message, "prowlarr.local") || strings.Contains(message, "leaked-key") || strings.Contains(message, "/api/") {
+		t.Fatalf("transport error leaks request details: %q", message)
+	}
+	if !strings.Contains(strings.ToLower(message), "prowlarr search request failed") {
+		t.Fatalf("unexpected sanitized error text: %q", message)
+	}
+}
+
+func TestRedactErrorStripsCredentials(t *testing.T) {
+	input := `Get "https://prowlarr/api/v1/search?apikey=abc123&query=x&token=tok456&password=pw789": context deadline exceeded`
+	got := redactError(errors.New(input))
+	for _, secret := range []string{"abc123", "tok456", "pw789"} {
+		if strings.Contains(got, secret) {
+			t.Fatalf("redactError leaked %q in: %s", secret, got)
+		}
+	}
+	for _, kept := range []string{"api/v1/search", "query=x"} {
+		if !strings.Contains(got, kept) {
+			t.Fatalf("redactError dropped useful context %q from: %s", kept, got)
+		}
+	}
+	if redactError(nil) != "" {
+		t.Fatal("redactError(nil) should be empty")
+	}
 }
