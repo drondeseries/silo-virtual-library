@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -649,43 +650,57 @@ func TestManifestStreamResolver_UnreleasedShortCircuit(t *testing.T) {
 	}
 	resolver.Configure(resolverConfig{ManifestURL: "https://stream.example/manifest.json"})
 
-	// 1. Episode unreleased check
+	// 1. Unreleased episode yields a typed error, no candidates, no upstream call
 	candidates, mediaType, mediaID, err := resolver.GetCandidates(context.Background(), "virtual://series/tt1234567/1/5")
-	if err != nil {
-		t.Fatalf("GetCandidates unreleased episode error: %v", err)
+	if err == nil {
+		t.Fatalf("expected unreleased error for future episode")
+	}
+	var unreleased *unreleasedError
+	if !errors.As(err, &unreleased) {
+		t.Fatalf("error %v is not an unreleasedError", err)
 	}
 	if upstreamCalled {
 		t.Fatalf("upstream provider was called for unreleased episode")
 	}
-	if len(candidates) != 1 || candidates[0].Name != UnreleasedStreamName {
-		t.Fatalf("expected unreleased candidate, got: %#v", candidates)
+	if len(candidates) != 0 {
+		t.Fatalf("expected zero candidates for unreleased episode, got: %#v", candidates)
 	}
-	if !strings.Contains(candidates[0].Title, "scheduled to air") {
-		t.Fatalf("expected title to mention scheduled air date, got: %q", candidates[0].Title)
-	}
-	if candidates[0].URL != "https://www.imdb.com/title/tt1234567" {
-		t.Fatalf("expected IMDb external URL, got: %q", candidates[0].URL)
+	if !strings.Contains(err.Error(), "airs") || !strings.Contains(err.Error(), "episode") {
+		t.Fatalf("unreleased message should name the episode and air date, got: %q", err.Error())
 	}
 	if mediaType != "series" || mediaID != "tt1234567:1:5" {
 		t.Fatalf("unexpected mediaType/ID: %s, %s", mediaType, mediaID)
 	}
 
-	// 2. SelectCandidates preserves unreleased candidate
-	selected := resolver.SelectCandidates("virtual://series/tt1234567/1/5?profile=4K", candidates)
-	if len(selected) != 1 || selected[0].Name != UnreleasedStreamName {
-		t.Fatalf("SelectCandidates dropped unreleased candidate: %#v", selected)
+	// 2. Resolve surfaces the typed error rather than a playable URL
+	if _, resolveErr := resolver.Resolve(context.Background(), "virtual://series/tt1234567/1/5"); !errors.As(resolveErr, &unreleased) {
+		t.Fatalf("Resolve should propagate the unreleased error, got: %v", resolveErr)
 	}
 
 	// 3. Movie unreleased check
 	candidatesMovie, _, _, err := resolver.GetCandidates(context.Background(), "virtual://movie/tt7777777")
-	if err != nil {
-		t.Fatalf("GetCandidates unreleased movie error: %v", err)
+	if !errors.As(err, &unreleased) {
+		t.Fatalf("expected unreleased movie error, got: %v", err)
 	}
 	if upstreamCalled {
 		t.Fatalf("upstream provider was called for unreleased movie")
 	}
-	if len(candidatesMovie) != 1 || candidatesMovie[0].Name != UnreleasedStreamName {
-		t.Fatalf("expected unreleased movie candidate, got: %#v", candidatesMovie)
+	if len(candidatesMovie) != 0 {
+		t.Fatalf("expected zero candidates for unreleased movie, got: %#v", candidatesMovie)
+	}
+
+	// 4. Released titles still pass through to the provider path untouched
+	releasedStore := release.NewReleaseStore()
+	releasedStore.SetMovie("tt0100002", time.Now().Add(-24*time.Hour))
+	passResolver := &manifestStreamResolver{
+		client: &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			return nil, fmt.Errorf("provider reached as expected")
+		})},
+		releaseStore: releasedStore,
+	}
+	passResolver.Configure(resolverConfig{ManifestURL: "https://stream.example/manifest.json"})
+	if _, _, _, passErr := passResolver.GetCandidates(context.Background(), "virtual://movie/tt0100002"); passErr == nil || strings.Contains(passErr.Error(), "airs") {
+		t.Fatalf("released movie should reach provider path, got: %v", passErr)
 	}
 }
 

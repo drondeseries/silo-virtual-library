@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -71,6 +72,14 @@ func (s *virtualStreamProvider) ResolveVirtualStream(ctx context.Context, req *p
 		candidates, _, _, err = s.resolver.GetCandidates(ctx, path)
 	}
 	if err != nil {
+		var unreleased *unreleasedError
+		if errors.As(err, &unreleased) {
+			return &pb.ResolveVirtualStreamResponse{Result: &pb.VirtualStreamResult{
+				ProviderId:   virtualStreamProviderID,
+				Availability: &pb.VirtualStreamAvailability{State: pb.VirtualStreamAvailabilityState_VIRTUAL_STREAM_AVAILABILITY_STATE_UNAVAILABLE, Message: unreleased.message},
+				Error:        &pb.VirtualStreamError{Code: pb.VirtualStreamErrorCode_VIRTUAL_STREAM_ERROR_CODE_NOT_FOUND, Message: unreleased.message, Retryable: true},
+			}}, nil
+		}
 		return &pb.ResolveVirtualStreamResponse{Result: &pb.VirtualStreamResult{
 			ProviderId:   virtualStreamProviderID,
 			Availability: &pb.VirtualStreamAvailability{State: pb.VirtualStreamAvailabilityState_VIRTUAL_STREAM_AVAILABILITY_STATE_UNAVAILABLE, Message: err.Error()},

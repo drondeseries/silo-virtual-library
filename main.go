@@ -112,6 +112,29 @@ func (c *manifestStreamResolver) SetReleaseStore(store *release.ReleaseStore) {
 	c.mu.Unlock()
 }
 
+// unreleasedError reports that tracked release metadata places the requested
+// movie or episode in the future. It is never surfaced as a playable
+// candidate: the host selects candidates by rank without consulting
+// availability flags, so any placeholder source would be handed to the
+// player and fail at stream-open.
+type unreleasedError struct {
+	message string
+}
+
+func (e *unreleasedError) Error() string { return e.message }
+
+func newUnreleasedError(imdbID string, airDate *time.Time, itemType string) *unreleasedError {
+	formatted := "soon"
+	if airDate != nil && !airDate.IsZero() {
+		formatted = airDate.UTC().Format("2006-01-02 15:04 MST")
+	}
+	noun := "episode"
+	if strings.EqualFold(itemType, "movie") {
+		noun = "movie"
+	}
+	return &unreleasedError{message: fmt.Sprintf("This %s (%s) airs %s. Streams appear automatically once it is released.", noun, imdbID, formatted)}
+}
+
 type candidateCacheEntry struct {
 	candidates []StreamCandidate
 	expiresAt  time.Time
@@ -179,9 +202,6 @@ func (c *manifestStreamResolver) Resolve(ctx context.Context, virtualPath string
 // ranked candidate so the host can fail over when a temporary provider URL
 // fails. Catalog variants remain one per configured profile label.
 func (c *manifestStreamResolver) SelectCandidates(virtualPath string, candidates []StreamCandidate) []StreamCandidate {
-	if len(candidates) == 1 && isUnreleasedCandidate(candidates[0]) {
-		return cloneCandidates(candidates)
-	}
 	u, _ := url.Parse(virtualPath)
 	if u == nil {
 		return cloneCandidates(candidates)
@@ -315,8 +335,7 @@ func (c *manifestStreamResolver) getCandidates(ctx context.Context, virtualPath 
 			}
 		}
 		if released, airDate := releaseStore.IsReleased(mediaType, imdbID, season, episode); !released {
-			unreleasedCandidate := buildUnreleasedCandidate(imdbID, airDate, mediaType)
-			return []StreamCandidate{unreleasedCandidate}, mediaType, mediaID, nil
+			return nil, mediaType, mediaID, newUnreleasedError(imdbID, airDate, mediaType)
 		}
 	}
 	cacheKey := mediaType + "|" + mediaID
