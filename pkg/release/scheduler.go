@@ -163,6 +163,7 @@ func (s *Scheduler) RefreshShow(ctx context.Context, imdbID string) error {
 
 	s.store.SetShow(cleanID, &ShowSchedule{
 		IMDBID:      cleanID,
+		Title:       meta.Title,
 		Status:      meta.Status,
 		NextAirDate: meta.NextAirDate,
 		Episodes:    meta.Episodes,
@@ -265,6 +266,7 @@ func (s *Scheduler) fetchAndStore(ctx context.Context, cleanID string) error {
 	}
 	s.store.SetShow(cleanID, &ShowSchedule{
 		IMDBID:      cleanID,
+		Title:       meta.Title,
 		Status:      meta.Status,
 		NextAirDate: meta.NextAirDate,
 		Episodes:    meta.Episodes,

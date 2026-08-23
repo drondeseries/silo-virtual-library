@@ -29,6 +29,7 @@ type EpisodeInfo struct {
 // ShowMetadata contains release schedule and status info for a TV series.
 type ShowMetadata struct {
 	IMDBID      string                 `json:"imdb_id"`
+	Title       string                 `json:"title,omitempty"`
 	Status      string                 `json:"status"`
 	NextAirDate *time.Time             `json:"next_air_date,omitempty"`
 	Episodes    map[string]EpisodeInfo `json:"episodes"`
@@ -186,6 +187,7 @@ func (c *MetadataClient) FetchShowMetadata(ctx context.Context, imdbID string) (
 
 	return &ShowMetadata{
 		IMDBID:      cleanID,
+		Title:       strings.TrimSpace(show.Name),
 		Status:      strings.TrimSpace(show.Status),
 		NextAirDate: nextAirDate,
 		Episodes:    episodeMap,

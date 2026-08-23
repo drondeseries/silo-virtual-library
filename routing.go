@@ -522,6 +522,7 @@ func (m *mediaMonitor) evaluate(ctx context.Context, item monitoredMedia) (monit
 			// real status (e.g. "Ended") with monitor-local guesses.
 			m.releaseStore.SetShowIfAbsent(item.IMDbID, &release.ShowSchedule{
 				IMDBID:      item.IMDbID,
+				Title:       item.Title,
 				Status:      "Monitoring",
 				NextAirDate: nextAir,
 				Episodes:    epMap,

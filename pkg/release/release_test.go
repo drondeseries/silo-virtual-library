@@ -87,6 +87,9 @@ func TestMetadataClient_FetchShowMetadata(t *testing.T) {
 	if meta.Status != "Running" {
 		t.Errorf("Status = %q, want 'Running'", meta.Status)
 	}
+	if meta.Title != "House of Dragons" {
+		t.Errorf("Title = %q, want 'House of Dragons'", meta.Title)
+	}
 	if len(meta.Episodes) != 2 {
 		t.Errorf("Episodes count = %d, want 2", len(meta.Episodes))
 	}

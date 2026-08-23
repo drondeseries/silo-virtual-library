@@ -10,6 +10,7 @@ import (
 // ShowSchedule represents the cached schedule and episode release states for a show.
 type ShowSchedule struct {
 	IMDBID      string                 `json:"imdb_id"`
+	Title       string                 `json:"title,omitempty"`
 	Status      string                 `json:"status"`
 	NextAirDate *time.Time             `json:"next_air_date,omitempty"`
 	Episodes    map[string]EpisodeInfo `json:"episodes"`
