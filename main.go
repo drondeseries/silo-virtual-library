@@ -26,6 +26,7 @@ import (
 	sdkruntime "github.com/Silo-Server/silo-plugin-sdk/pkg/pluginsdk/runtime"
 	"github.com/Silo-Server/silo-plugin-sdk/pkg/pluginsdk/runtimedefault"
 	"github.com/Silo-Server/silo-plugin-sdk/pkg/pluginsdk/runtimehost"
+	"github.com/drondeseries/silo-virtual-library/pkg/release"
 	"github.com/hashicorp/go-hclog"
 )
 
@@ -102,6 +103,30 @@ type manifestStreamResolver struct {
 	cache           map[string]candidateCacheEntry
 	cacheGeneration uint64
 	cacheBytes      int64
+	releaseStore    *release.ReleaseStore
+}
+
+// unreleasedError reports that tracked release metadata places the requested
+// movie or episode in the future. It is never surfaced as a playable
+// candidate: the host selects candidates by rank without consulting
+// availability flags, so any placeholder source would be handed to the
+// player and fail at stream-open.
+type unreleasedError struct {
+	message string
+}
+
+func (e *unreleasedError) Error() string { return e.message }
+
+func newUnreleasedError(imdbID string, airDate *time.Time, itemType string) *unreleasedError {
+	formatted := "soon"
+	if airDate != nil && !airDate.IsZero() {
+		formatted = airDate.UTC().Format("2006-01-02 15:04 MST")
+	}
+	noun := "episode"
+	if strings.EqualFold(itemType, "movie") {
+		noun = "movie"
+	}
+	return &unreleasedError{message: fmt.Sprintf("This %s (%s) airs %s. Streams appear automatically once it is released.", noun, imdbID, formatted)}
 }
 
 type candidateCacheEntry struct {
@@ -262,6 +287,7 @@ func (c *manifestStreamResolver) getCandidates(ctx context.Context, virtualPath 
 	c.mu.RLock()
 	config := c.config
 	generation := c.generation
+	releaseStore := c.releaseStore
 	c.mu.RUnlock()
 
 	if strings.Contains(virtualPath, "refresh=1") || strings.Contains(virtualPath, "force=1") {
@@ -284,6 +310,26 @@ func (c *manifestStreamResolver) getCandidates(ctx context.Context, virtualPath 
 		mediaID, err = c.normalizeTMDBProviderID(ctx, mediaType, mediaID, config.TMDBAPIKey)
 		if err != nil {
 			return nil, mediaType, mediaID, err
+		}
+	}
+
+	// Intercept unreleased media before contacting the streaming provider
+	if releaseStore != nil {
+		imdbID := mediaID
+		season := 0
+		episode := 0
+		if mediaType == "series" {
+			parts := strings.Split(mediaID, ":")
+			if len(parts) >= 3 {
+				imdbID = parts[0]
+				season, _ = strconv.Atoi(parts[1])
+				episode, _ = strconv.Atoi(parts[2])
+			} else if len(parts) == 1 {
+				imdbID = parts[0]
+			}
+		}
+		if released, airDate := releaseStore.IsReleased(mediaType, imdbID, season, episode); !released {
+			return nil, mediaType, mediaID, newUnreleasedError(imdbID, airDate, mediaType)
 		}
 	}
 	cacheKey := mediaType + "|" + mediaID
@@ -817,11 +863,13 @@ type runtimeServer struct {
 	runtimedefault.Server
 	pb.UnimplementedRequestRouterServer
 	pb.UnimplementedScheduledTaskServer
-	configMu sync.Mutex
-	manifest *pb.PluginManifest
-	resolver *manifestStreamResolver
-	monitor  *mediaMonitor
-	library  virtualMediaRegistrar
+	configMu     sync.Mutex
+	manifest     *pb.PluginManifest
+	resolver     *manifestStreamResolver
+	monitor      *mediaMonitor
+	library      virtualMediaRegistrar
+	releaseStore *release.ReleaseStore
+	scheduler    *release.Scheduler
 }
 
 func (s *runtimeServer) GetManifest(context.Context, *pb.GetManifestRequest) (*pb.GetManifestResponse, error) {
@@ -902,6 +950,12 @@ func (s *runtimeServer) Configure(_ context.Context, request *pb.ConfigureReques
 		if err != nil {
 			return nil, err
 		}
+		if s.scheduler != nil {
+			s.scheduler.SetCatalogPath(monitorFile)
+			if minutes, ok := entry.GetValue().AsMap()["schedule_refresh_minutes"].(float64); ok && minutes > 0 {
+				s.scheduler.SetInterval(time.Duration(minutes) * time.Minute)
+			}
+		}
 		library, err := newSiloLibrary(sdkruntime.Host(), movieLibraryID, seriesLibraryID, s.resolver)
 		if err != nil {
 			return nil, err
@@ -941,9 +995,38 @@ func main() {
 		fmt.Fprintf(os.Stderr, "load manifest: %v\n", err)
 		os.Exit(1)
 	}
-	resolver := &manifestStreamResolver{client: newProviderHTTPClient()}
+	releaseStore := release.NewReleaseStore()
+	releaseClient := release.NewMetadataClient(metadataClient)
+	scheduler := release.NewScheduler(releaseStore, releaseClient, 6*time.Hour)
+
+	resolver := &manifestStreamResolver{
+		client:       newProviderHTTPClient(),
+		releaseStore: releaseStore,
+	}
 	monitor := newMediaMonitor(resolver, hclog.New(&hclog.LoggerOptions{Name: "silo-virtual-library-monitor"}))
-	runtime := &runtimeServer{manifest: manifest, resolver: resolver, monitor: monitor}
+	monitor.releaseStore = releaseStore
+
+	scheduler.SetShowProvider(func(ctx context.Context) ([]string, error) {
+		monitor.mu.Lock()
+		defer monitor.mu.Unlock()
+		var ids []string
+		for _, item := range monitor.items {
+			if item.MediaType == "series" && item.IMDbID != "" {
+				ids = append(ids, item.IMDbID)
+			}
+		}
+		return ids, nil
+	})
+
+	go scheduler.Start(context.Background(), resolvePluginDataPath(".silo-virtual-library-monitored.json", ".silo-virtual-library-monitored.json"))
+
+	runtime := &runtimeServer{
+		manifest:     manifest,
+		resolver:     resolver,
+		monitor:      monitor,
+		releaseStore: releaseStore,
+		scheduler:    scheduler,
+	}
 	sdkruntime.Serve(sdkruntime.ServeConfig{
 		Logger: hclog.New(&hclog.LoggerOptions{Name: "silo-virtual-library"}),
 		Servers: sdkruntime.CapabilityServers{

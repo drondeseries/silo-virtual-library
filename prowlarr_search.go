@@ -148,10 +148,12 @@ func (c *prowlarrSearchClient) searchURL() (string, error) {
 	return c.searchURLForQuery("")
 }
 
+// searchURLForQuery builds the Prowlarr search endpoint URL without any
+// credentials in it. The API key travels in the X-Api-Key request header so
+// it can never leak through error strings or logs that embed URLs.
 func (c *prowlarrSearchClient) searchURLForQuery(query string) (string, error) {
 	c.mu.Lock()
 	raw := c.url
-	key := c.apiKey
 	c.mu.Unlock()
 	if strings.TrimSpace(raw) == "" {
 		return "", errors.New("Prowlarr search URL is not configured")
@@ -168,11 +170,23 @@ func (c *prowlarrSearchClient) searchURLForQuery(query string) (string, error) {
 	if strings.TrimSpace(query) != "" {
 		q.Set("query", query)
 	}
-	if key != "" {
-		q.Set("apikey", key)
-	}
 	u.RawQuery = q.Encode()
 	return u.String(), nil
+}
+
+func (c *prowlarrSearchClient) newSearchRequest(ctx context.Context, searchURL string) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, searchURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/json")
+	c.mu.Lock()
+	key := c.apiKey
+	c.mu.Unlock()
+	if key != "" {
+		req.Header.Set("X-Api-Key", key)
+	}
+	return req, nil
 }
 
 func (c *prowlarrSearchClient) search(ctx context.Context, item monitoredMedia) ([]prowlarrRelease, error) {
@@ -180,14 +194,13 @@ func (c *prowlarrSearchClient) search(ctx context.Context, item monitoredMedia) 
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, searchURL, nil)
+	req, err := c.newSearchRequest(ctx, searchURL)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Accept", "application/json")
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, errors.New("Prowlarr search request failed")
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -224,13 +237,13 @@ func (c *prowlarrSearchClient) refresh(ctx context.Context) error {
 		c.mu.Unlock()
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, searchURL, nil)
+	req, err := c.newSearchRequest(ctx, searchURL)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Accept", "application/json")
 	resp, err := c.client.Do(req)
 	if err != nil {
+		err = errors.New("Prowlarr search request failed")
 		c.mu.Lock()
 		c.lastErr = err
 		c.mu.Unlock()
@@ -577,17 +590,16 @@ func (c *prowlarrSearchClient) Validate(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, searchURL, nil)
+	req, err := c.newSearchRequest(ctx, searchURL)
 	if err != nil {
 		return "", fmt.Errorf("create request: %w", err)
 	}
-	req.Header.Set("Accept", "application/json")
 	// Dedicated short-timeout client so a stale Prowlarr config can't exhaust
 	// the SDK's gRPC deadline during TestConnection.
 	validateClient := &http.Client{Timeout: 5 * time.Second}
 	resp, err := validateClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("connect to Prowlarr: %w", err)
+		return "", errors.New("connect to Prowlarr failed")
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
