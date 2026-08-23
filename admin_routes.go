@@ -52,11 +52,7 @@ func (a *adminRoutes) Handle(ctx context.Context, req *pb.HandleHTTPRequest) (*p
 	path := strings.TrimRight(req.GetPath(), "/")
 	switch {
 	case path == queuePagePath && req.GetMethod() == http.MethodGet:
-		return adminAsset(http.StatusOK, adminIndexHTML, "text/html; charset=utf-8")
-	case path == queuePagePath+"/styles.css" && req.GetMethod() == http.MethodGet:
-		return adminAsset(http.StatusOK, adminStylesCSS, "text/css; charset=utf-8")
-	case path == queuePagePath+"/app.js" && req.GetMethod() == http.MethodGet:
-		return adminAsset(http.StatusOK, adminAppJS, "text/javascript; charset=utf-8")
+		return adminAsset(http.StatusOK, adminPageHTML, "text/html; charset=utf-8")
 	case path == queuePagePath+"/queue" && req.GetMethod() == http.MethodGet:
 		return a.queueJSON()
 	case path == queuePagePath+"/calendar" && req.GetMethod() == http.MethodGet:
@@ -237,3 +233,13 @@ var adminStylesCSS []byte
 
 //go:embed web/admin/app.js
 var adminAppJS []byte
+
+// adminPageHTML is composed once at startup: the shell with styles and
+// script inlined. The Release Desk is served through host proxies whose
+// mount paths (and trailing slashes) vary, so external asset references
+// are never URL-resolvable reliably — a single self-contained document
+// is the only robust delivery.
+var adminPageHTML = func() []byte {
+	page := strings.Replace(string(adminIndexHTML), "__INLINE_CSS__", string(adminStylesCSS), 1)
+	return []byte(strings.Replace(page, "__INLINE_JS__", string(adminAppJS), 1))
+}()
