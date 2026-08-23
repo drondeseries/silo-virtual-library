@@ -169,7 +169,10 @@ func TestFetchTMDBReleaseUsesEarliestHomeReleaseFromAnyMarket(t *testing.T) {
 func TestFetchTMDBReleaseQueuesWhenAllMarketsAreTheatrical(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"results":[{"iso_3166_1":"US","release_dates":[{"type":3,"release_date":"2026-07-10T00:00:00.000Z"}]},{"iso_3166_1":"FR","release_dates":[{"type":2,"release_date":"2026-07-20T00:00:00.000Z"}]}]}`))
+		// Far-future theatrical dates so this stays valid regardless of when
+		// the suite runs; dates within 90 days of "now" would eventually be
+		// presumed home releases by design.
+		_, _ = w.Write([]byte(`{"results":[{"iso_3166_1":"US","release_dates":[{"type":3,"release_date":"2099-07-10T00:00:00.000Z"}]},{"iso_3166_1":"FR","release_dates":[{"type":2,"release_date":"2099-07-20T00:00:00.000Z"}]}]}`))
 	}))
 	previous := tmdbBaseURL
 	tmdbBaseURL = server.URL
@@ -178,6 +181,27 @@ func TestFetchTMDBReleaseQueuesWhenAllMarketsAreTheatrical(t *testing.T) {
 	_, err := fetchTMDBRelease(context.Background(), "1", "test-key")
 	if !errors.Is(err, errNoHomeRelease) {
 		t.Fatalf("error = %v, want errNoHomeRelease", err)
+	}
+}
+
+func TestMovieReleaseStaysQueuedWhenCinemetaIsDown(t *testing.T) {
+	// Point Cinemeta at a closed port to simulate a metadata-provider outage.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
+	url := server.URL
+	server.Close()
+	previous := cinemetaBaseURL
+	cinemetaBaseURL = url
+	t.Cleanup(func() { cinemetaBaseURL = previous })
+
+	monitor := newMediaMonitor(nil, hclog.NewNullLogger())
+	item := monitoredMedia{MediaType: "movie", Title: "Old Catalog Film", IMDbID: "tt0100001", Year: 1994}
+
+	releaseDate, err := monitor.movieRelease(context.Background(), item)
+	if err == nil {
+		t.Fatalf("outage must fail closed, got release date %v", releaseDate)
+	}
+	if !releaseDate.IsZero() {
+		t.Fatalf("outage must not fabricate a release date, got %v", releaseDate)
 	}
 }
 

@@ -1192,9 +1192,6 @@ func (m *mediaMonitor) movieRelease(ctx context.Context, item monitoredMedia) (t
 		}
 	}
 	if item.IMDbID == "" {
-		if item.Year > 0 && int(item.Year) < time.Now().Year() {
-			return time.Date(int(item.Year), 1, 1, 0, 0, 0, 0, time.UTC), nil
-		}
 		return time.Time{}, errors.New("IMDb ID required for Cinemeta fallback")
 	}
 	endpoint := strings.TrimRight(cinemetaBaseURL, "/") + "/meta/movie/" + url.PathEscape(item.IMDbID) + ".json"
@@ -1202,16 +1199,10 @@ func (m *mediaMonitor) movieRelease(ctx context.Context, item monitoredMedia) (t
 	client := metadataClient
 	resp, err := client.Do(request)
 	if err != nil {
-		if item.Year > 0 && int(item.Year) < time.Now().Year() {
-			return time.Date(int(item.Year), 1, 1, 0, 0, 0, 0, time.UTC), nil
-		}
 		return time.Time{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		if item.Year > 0 && int(item.Year) < time.Now().Year() {
-			return time.Date(int(item.Year), 1, 1, 0, 0, 0, 0, time.UTC), nil
-		}
 		return time.Time{}, fmt.Errorf("Cinemeta HTTP %d", resp.StatusCode)
 	}
 	var payload struct {
