@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -40,9 +41,36 @@ type MovieMetadata struct {
 }
 
 // MetadataClient fetches show and episode metadata from external providers.
+// A global spacing limiter keeps request rates inside TVmaze's free-tier
+// guidance even when the scheduler worker pool, playback lookups, and
+// monitor evaluations overlap.
 type MetadataClient struct {
-	client  *http.Client
-	baseURL string
+	client     *http.Client
+	baseURL    string
+	minSpacing time.Duration
+
+	limiterMu sync.Mutex
+	nextSlot  time.Time
+}
+
+const metadataMinRequestSpacing = 100 * time.Millisecond
+
+func (c *MetadataClient) waitSlot() {
+	spacing := c.minSpacing
+	if spacing <= 0 {
+		return
+	}
+	c.limiterMu.Lock()
+	now := time.Now()
+	if c.nextSlot.Before(now) {
+		c.nextSlot = now
+	}
+	wait := c.nextSlot.Sub(now)
+	c.nextSlot = c.nextSlot.Add(spacing)
+	c.limiterMu.Unlock()
+	if wait > 0 {
+		time.Sleep(wait)
+	}
 }
 
 // NewMetadataClient creates a new client with the given HTTP client or a default client.
@@ -53,8 +81,9 @@ func NewMetadataClient(client *http.Client) *MetadataClient {
 		}
 	}
 	return &MetadataClient{
-		client:  client,
-		baseURL: defaultTVMazeBaseURL,
+		client:     client,
+		baseURL:    defaultTVMazeBaseURL,
+		minSpacing: metadataMinRequestSpacing,
 	}
 }
 
@@ -89,6 +118,7 @@ func (c *MetadataClient) FetchShowMetadata(ctx context.Context, imdbID string) (
 	if cleanID == "" {
 		return nil, errors.New("imdb_id is required")
 	}
+	c.waitSlot()
 
 	endpoint := fmt.Sprintf("%s/lookup/shows?imdb=%s&embed=episodes", c.baseURL, url.QueryEscape(cleanID))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)

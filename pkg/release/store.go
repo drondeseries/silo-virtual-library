@@ -189,7 +189,8 @@ func (s *ReleaseStore) IsReleased(itemType string, imdbID string, season int, ep
 	return true, nil
 }
 
-// GetAllShows returns a slice of all tracked show schedules.
+// GetAllShows returns a slice of all tracked show schedules. Episodes maps
+// are deep-copied so callers can never race writers through shared state.
 func (s *ReleaseStore) GetAllShows() []*ShowSchedule {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -197,6 +198,10 @@ func (s *ReleaseStore) GetAllShows() []*ShowSchedule {
 	for _, show := range s.shows {
 		if show != nil {
 			cloned := *show
+			cloned.Episodes = make(map[string]EpisodeInfo, len(show.Episodes))
+			for k, v := range show.Episodes {
+				cloned.Episodes[k] = v
+			}
 			result = append(result, &cloned)
 		}
 	}

@@ -894,6 +894,13 @@ func (s *runtimeServer) Run(ctx context.Context, req *pb.RunScheduledTaskRequest
 	keepBySource := make(map[string][]string)
 	reconcileSafeBySource := make(map[string]bool)
 	for _, item := range items {
+		if ctx.Err() != nil {
+			// Host deadline (2 minutes for scheduled tasks) hit mid-pass:
+			// stop evaluating and report what was completed so the run
+			// degrades gracefully instead of dying inside a fetch.
+			s.monitor.logger.Warn("monitor run stopped by context deadline", "completed", ready+pending, "total", len(items))
+			break
+		}
 		source := item.SourceKey
 		if source == "" {
 			source = "monitor"

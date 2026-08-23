@@ -106,12 +106,6 @@ type manifestStreamResolver struct {
 	releaseStore    *release.ReleaseStore
 }
 
-func (c *manifestStreamResolver) SetReleaseStore(store *release.ReleaseStore) {
-	c.mu.Lock()
-	c.releaseStore = store
-	c.mu.Unlock()
-}
-
 // unreleasedError reports that tracked release metadata places the requested
 // movie or episode in the future. It is never surfaced as a playable
 // candidate: the host selects candidates by rank without consulting
@@ -869,14 +863,13 @@ type runtimeServer struct {
 	runtimedefault.Server
 	pb.UnimplementedRequestRouterServer
 	pb.UnimplementedScheduledTaskServer
-	configMu      sync.Mutex
-	manifest      *pb.PluginManifest
-	resolver      *manifestStreamResolver
-	monitor       *mediaMonitor
-	library       virtualMediaRegistrar
-	releaseStore  *release.ReleaseStore
-	scheduler     *release.Scheduler
-	releaseClient *release.MetadataClient
+	configMu     sync.Mutex
+	manifest     *pb.PluginManifest
+	resolver     *manifestStreamResolver
+	monitor      *mediaMonitor
+	library      virtualMediaRegistrar
+	releaseStore *release.ReleaseStore
+	scheduler    *release.Scheduler
 }
 
 func (s *runtimeServer) GetManifest(context.Context, *pb.GetManifestRequest) (*pb.GetManifestResponse, error) {
@@ -1028,12 +1021,11 @@ func main() {
 	go scheduler.Start(context.Background(), resolvePluginDataPath(".silo-virtual-library-monitored.json", ".silo-virtual-library-monitored.json"))
 
 	runtime := &runtimeServer{
-		manifest:      manifest,
-		resolver:      resolver,
-		monitor:       monitor,
-		releaseStore:  releaseStore,
-		scheduler:     scheduler,
-		releaseClient: releaseClient,
+		manifest:     manifest,
+		resolver:     resolver,
+		monitor:      monitor,
+		releaseStore: releaseStore,
+		scheduler:    scheduler,
 	}
 	sdkruntime.Serve(sdkruntime.ServeConfig{
 		Logger: hclog.New(&hclog.LoggerOptions{Name: "silo-virtual-library"}),

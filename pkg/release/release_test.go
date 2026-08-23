@@ -327,6 +327,7 @@ func TestScheduler_RefreshAndSkipEnded(t *testing.T) {
 
 	client := NewMetadataClient(server.Client())
 	client.SetBaseURL(server.URL)
+	client.minSpacing = 0
 
 	store := NewReleaseStore()
 	scheduler := NewScheduler(store, client, 100*time.Millisecond)
