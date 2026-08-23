@@ -21,8 +21,8 @@ jobs:
             goarch: arm64
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: "1.26"
       - name: Validate release metadata
@@ -45,7 +45,7 @@ jobs:
         run: |
           mkdir -p dist
           go build -buildvcs=false -trimpath -ldflags="-s -w" -o "dist/plugin-${GOOS}-${GOARCH}" .
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: plugin-${{ matrix.goos }}-${{ matrix.goarch }}
           path: dist/plugin-${{ matrix.goos }}-${{ matrix.goarch }}
@@ -54,10 +54,10 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: main
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: artifacts
       - name: Prepare assets and checksums
@@ -67,7 +67,7 @@ jobs:
           cd release
           sha256sum plugin-* > checksums.txt
       - name: Publish GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           generate_release_notes: true
           files: |
