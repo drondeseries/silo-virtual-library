@@ -44,9 +44,10 @@ const (
 	// candidateStaleGrace extends candidate-cache usefulness past its TTL:
 	// an expired-but-non-empty entry is served immediately while one
 	// background refresh repopulates it. Provider URLs are short-lived
-	// tokens and the host fails over on dead links, so a bounded grace is
-	// far cheaper than blocking every warm playback start.
-	candidateStaleGrace      = 10 * time.Minute
+	// tokens whose actual lifetime is unknown to the plugin, so the grace is
+	// intentionally short — long enough to cover a typical playback start,
+	// short enough that expired credentials are not served for long.
+	candidateStaleGrace      = 3 * time.Minute
 	backgroundRefreshTimeout = 15 * time.Second
 )
 
@@ -111,6 +112,7 @@ type manifestStreamResolver struct {
 	cacheGeneration uint64
 	cacheBytes      int64
 	refreshes       map[string]chan struct{}
+	syncFlights     map[string]chan struct{}
 	releaseStore    *release.ReleaseStore
 	logger          hclog.Logger
 }
@@ -344,7 +346,7 @@ func (c *manifestStreamResolver) getCandidates(ctx context.Context, virtualPath 
 	cacheKey := mediaType + "|" + mediaID
 
 	// Cache tiers: fresh serve → stale-in-grace serve + one background
-	// refresh → blocking fetch past grace or on force_refresh.
+	// refresh → singleflight blocking fetch past grace or on force_refresh.
 	if !forceRefresh {
 		now := time.Now()
 		c.cacheMu.Lock()
@@ -372,10 +374,69 @@ func (c *manifestStreamResolver) getCandidates(ctx context.Context, virtualPath 
 			return candidates, mediaType, mediaID, nil
 		}
 		c.cacheMu.Unlock()
+
+		// Past stale grace: deduplicate concurrent blocking fetches through
+		// the same keyed flight used for background refreshes. The first
+		// caller blocks on the provider; later callers receive its result.
+		if wait := c.joinFlight(cacheKey, config, generation, mediaType, mediaID); wait != nil {
+			<-wait
+			c.cacheMu.Lock()
+			fresh, stillOK := c.cache[cacheKey]
+			c.cacheMu.Unlock()
+			if stillOK && now.Add(candidateStaleGrace).Before(time.Now()) == false && fresh.candidates != nil {
+				candidates := cloneCandidates(fresh.candidates)
+				return candidates, mediaType, mediaID, nil
+			}
+			// Flight completed but produced no usable entry (e.g. provider
+			// returned empty); fall through to our own attempt.
+		}
 	}
 
 	candidates, err := c.fetchProviderCandidates(ctx, config, generation, cacheKey, mediaType, mediaID)
 	return candidates, mediaType, mediaID, err
+}
+
+// joinFlight registers this caller as a synchronous provider fetcher if no
+// other flight is active for the key. It returns a channel to wait on, or
+// nil if this caller should proceed directly (first-in wins). Callers must
+// NOT hold cacheMu.
+func (c *manifestStreamResolver) joinFlight(cacheKey string, config resolverConfig, generation uint64, mediaType, mediaID string) <-chan struct{} {
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+	if c.refreshes == nil {
+		c.refreshes = make(map[string]chan struct{})
+	}
+	if c.syncFlights == nil {
+		c.syncFlights = make(map[string]chan struct{})
+	}
+	if _, inflight := c.refreshes[cacheKey]; inflight {
+		ch, exists := c.syncFlights[cacheKey]
+		if !exists {
+			ch = make(chan struct{})
+			c.syncFlights[cacheKey] = ch
+		}
+		return ch
+	}
+	done := make(chan struct{})
+	c.refreshes[cacheKey] = done
+	c.syncFlights[cacheKey] = done
+	go func() {
+		defer func() {
+			c.cacheMu.Lock()
+			delete(c.refreshes, cacheKey)
+			delete(c.syncFlights, cacheKey)
+			c.cacheMu.Unlock()
+			close(done)
+		}()
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+		if _, err := c.fetchProviderCandidates(ctx, config, generation, cacheKey, mediaType, mediaID); err != nil {
+			c.debugLog("synchronous candidate fetch failed", cacheKey, 0)
+			return
+		}
+		c.debugLog("synchronous candidate fetch complete", cacheKey, 0)
+	}()
+	return done
 }
 
 // startRefreshLocked launches exactly one background provider fetch per

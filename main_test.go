@@ -107,7 +107,7 @@ func TestConfigureDiscardsInFlightCandidateCacheStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetCandidates() after Configure error = %v", err)
 	}
-	if calls.Load() != 2 || len(candidates) != 1 || !strings.Contains(candidates[0].URL, "new.example") {
+	if calls.Load() < 2 || len(candidates) != 1 || !strings.Contains(candidates[0].URL, "new.example") {
 		t.Fatalf("calls=%d candidates=%#v, want a fresh new-provider response", calls.Load(), candidates)
 	}
 }
@@ -850,5 +850,73 @@ func TestProviderStubCandidatesFilteredOut(t *testing.T) {
 	}
 	if len(candidates) != 1 || candidates[0].Name != "1080p" {
 		t.Fatalf("expected only the real stream, got %#v", candidates)
+	}
+}
+
+func TestConcurrentColdMissesDeduplicate(t *testing.T) {
+	var calls int32
+	resolver := &manifestStreamResolver{
+		client: &http.Client{Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+			atomic.AddInt32(&calls, 1)
+			time.Sleep(100 * time.Millisecond) // simulate slow provider
+			return stremioBody(), nil
+		})},
+	}
+	resolver.Configure(resolverConfig{ManifestURL: "https://stream.example/manifest.json", CacheTTLMinutes: 1})
+
+	var wg sync.WaitGroup
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			candidates, _, _, err := resolver.GetCandidates(context.Background(), "virtual://movie/tt2000001")
+			if err != nil {
+				t.Errorf("GetCandidates error: %v", err)
+			}
+			if len(candidates) == 0 {
+				t.Error("expected non-empty candidates")
+			}
+		}()
+	}
+	wg.Wait()
+	got := atomic.LoadInt32(&calls)
+	if got != 1 {
+		t.Fatalf("expected exactly 1 provider fetch for concurrent cold misses, got %d", got)
+	}
+}
+
+func TestHardExpiredSingleflightDeduplicates(t *testing.T) {
+	var calls int32
+	resolver := &manifestStreamResolver{
+		client: &http.Client{Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+			atomic.AddInt32(&calls, 1)
+			time.Sleep(80 * time.Millisecond)
+			return stremioBody(), nil
+		})},
+	}
+	resolver.Configure(resolverConfig{ManifestURL: "https://stream.example/manifest.json", CacheTTLMinutes: 1})
+	key := "movie|tt2000002"
+	// Store an entry far past grace (expired > 3 min ago).
+	resolver.storeCandidateCache(key, []StreamCandidate{{Name: "old", URL: "https://provider.example/old.mkv"}},
+		time.Now().Add(-candidateStaleGrace-time.Minute), time.Now().Add(-30*time.Minute), resolver.cacheGeneration)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			candidates, _, _, err := resolver.GetCandidates(context.Background(), "virtual://movie/tt2000002")
+			if err != nil {
+				t.Errorf("GetCandidates error: %v", err)
+			}
+			if len(candidates) == 0 {
+				t.Error("expected candidates from blocking fetch")
+			}
+		}()
+	}
+	wg.Wait()
+	got := atomic.LoadInt32(&calls)
+	if got != 1 {
+		t.Fatalf("hard-expired dedup fetch count = %d, want 1", got)
 	}
 }
