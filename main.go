@@ -41,6 +41,13 @@ const (
 	maxCandidateCacheBytes   = 16 << 20
 	maxVirtualCandidates     = 50
 	maxManifestResponseBytes = 256 << 10
+	// candidateStaleGrace extends candidate-cache usefulness past its TTL:
+	// an expired-but-non-empty entry is served immediately while one
+	// background refresh repopulates it. Provider URLs are short-lived
+	// tokens and the host fails over on dead links, so a bounded grace is
+	// far cheaper than blocking every warm playback start.
+	candidateStaleGrace      = 10 * time.Minute
+	backgroundRefreshTimeout = 15 * time.Second
 )
 
 //go:embed manifest.json
@@ -103,7 +110,9 @@ type manifestStreamResolver struct {
 	cache           map[string]candidateCacheEntry
 	cacheGeneration uint64
 	cacheBytes      int64
+	refreshes       map[string]chan struct{}
 	releaseStore    *release.ReleaseStore
+	logger          hclog.Logger
 }
 
 // unreleasedError reports that tracked release metadata places the requested
@@ -333,25 +342,83 @@ func (c *manifestStreamResolver) getCandidates(ctx context.Context, virtualPath 
 		}
 	}
 	cacheKey := mediaType + "|" + mediaID
-	c.cacheMu.Lock()
-	if !forceRefresh && c.cacheGeneration == generation {
-		if entry, ok := c.cache[cacheKey]; ok && time.Now().Before(entry.expiresAt) {
+
+	// Cache tiers: fresh serve → stale-in-grace serve + one background
+	// refresh → blocking fetch past grace or on force_refresh.
+	if !forceRefresh {
+		now := time.Now()
+		c.cacheMu.Lock()
+		entry, ok := c.cache[cacheKey]
+		sameGeneration := c.cacheGeneration == generation
+		switch {
+		case sameGeneration && ok && now.Before(entry.expiresAt):
 			candidates := cloneCandidates(entry.candidates)
-			entry.lastAccess = time.Now()
+			entry.lastAccess = now
 			c.cache[cacheKey] = entry
 			c.cacheMu.Unlock()
 			return candidates, mediaType, mediaID, nil
+		case sameGeneration && ok && len(entry.candidates) > 0 &&
+			!now.Before(entry.expiresAt) && now.Before(entry.expiresAt.Add(candidateStaleGrace)):
+			candidates := cloneCandidates(entry.candidates)
+			entry.lastAccess = now
+			c.cache[cacheKey] = entry
+			started := c.startRefreshLocked(cacheKey, generation, config, mediaType, mediaID)
+			c.cacheMu.Unlock()
+			if started {
+				c.debugLog("stale candidates served; background refresh started", cacheKey, len(candidates))
+			} else {
+				c.debugLog("stale candidates served; refresh already running", cacheKey, len(candidates))
+			}
+			return candidates, mediaType, mediaID, nil
 		}
+		c.cacheMu.Unlock()
 	}
-	c.cacheMu.Unlock()
 
+	candidates, err := c.fetchProviderCandidates(ctx, config, generation, cacheKey, mediaType, mediaID)
+	return candidates, mediaType, mediaID, err
+}
+
+// startRefreshLocked launches exactly one background provider fetch per
+// cache key. Callers must hold cacheMu; the spawned goroutine replaces the
+// cache entry through the normal generation-checked path.
+func (c *manifestStreamResolver) startRefreshLocked(cacheKey string, generation uint64, config resolverConfig, mediaType, mediaID string) bool {
+	if _, inflight := c.refreshes[cacheKey]; inflight {
+		return false
+	}
+	if c.refreshes == nil {
+		c.refreshes = make(map[string]chan struct{})
+	}
+	done := make(chan struct{})
+	c.refreshes[cacheKey] = done
+	go func() {
+		defer func() {
+			c.cacheMu.Lock()
+			delete(c.refreshes, cacheKey)
+			c.cacheMu.Unlock()
+			close(done)
+		}()
+		ctx, cancel := context.WithTimeout(context.Background(), backgroundRefreshTimeout)
+		defer cancel()
+		if _, err := c.fetchProviderCandidates(ctx, config, generation, cacheKey, mediaType, mediaID); err != nil {
+			c.debugLog("background candidate refresh failed", cacheKey, 0)
+			return
+		}
+		c.debugLog("background candidate refresh complete", cacheKey, 0)
+	}()
+	return true
+}
+
+// fetchProviderCandidates performs a synchronous streaming-provider lookup
+// and caches successful results. Provider URLs are never logged.
+func (c *manifestStreamResolver) fetchProviderCandidates(ctx context.Context, config resolverConfig, generation uint64, cacheKey, mediaType, mediaID string) ([]StreamCandidate, error) {
+	started := time.Now()
 	endpoint, err := streamEndpointWithPolicy(config.ManifestURL, mediaType, mediaID, config.AllowInsecure)
 	if err != nil {
-		return nil, mediaType, mediaID, err
+		return nil, err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		return nil, mediaType, mediaID, fmt.Errorf("create streaming provider request: %w", err)
+		return nil, fmt.Errorf("create streaming provider request: %w", err)
 	}
 	client := c.client
 	if client == nil {
@@ -359,20 +426,20 @@ func (c *manifestStreamResolver) getCandidates(ctx context.Context, virtualPath 
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, mediaType, mediaID, errors.New("request streaming provider failed")
+		return nil, errors.New("request streaming provider failed")
 	}
 	defer resp.Body.Close()
-	var validCandidates []StreamCandidate
 	if resp.StatusCode != http.StatusOK {
-		return validCandidates, mediaType, mediaID, fmt.Errorf("streaming provider returned status %d", resp.StatusCode)
+		return nil, fmt.Errorf("streaming provider returned status %d", resp.StatusCode)
 	}
 	var payload stremioResponse
 	if err := decodeBoundedJSON(resp.Body, maxResponseBytes, &payload); err != nil {
-		return validCandidates, mediaType, mediaID, fmt.Errorf("decode streaming provider response: %w", err)
+		return nil, fmt.Errorf("decode streaming provider response: %w", err)
 	}
+	validCandidates := make([]StreamCandidate, 0, len(payload.Streams))
 	for i, stream := range payload.Streams {
-		candidate, parseErr := url.Parse(strings.TrimSpace(stream.URL))
-		if parseErr == nil && candidate.IsAbs() && (candidate.Scheme == "https" || candidate.Scheme == "http") {
+		parsed, parseErr := url.Parse(strings.TrimSpace(stream.URL))
+		if parseErr == nil && parsed.IsAbs() && (parsed.Scheme == "https" || parsed.Scheme == "http") {
 			stream.OriginalIndex = i
 			parseStreamDetails(&stream)
 			parseStreamMetadata(&stream)
@@ -382,16 +449,26 @@ func (c *manifestStreamResolver) getCandidates(ctx context.Context, virtualPath 
 			}
 		}
 	}
-	if len(validCandidates) > maxVirtualCandidates {
-		validCandidates = validCandidates[:maxVirtualCandidates]
-	}
 	ttlMinutes := config.CacheTTLMinutes
 	if ttlMinutes == 0 {
 		ttlMinutes = defaultCacheTTLMinutes
 	}
 	now := time.Now()
 	c.storeCandidateCache(cacheKey, validCandidates, now.Add(time.Duration(ttlMinutes)*time.Minute), now, generation)
-	return validCandidates, mediaType, mediaID, nil
+	if c.logger != nil {
+		c.logger.Info("provider candidates fetched",
+			"media_type", mediaType, "media_id", mediaID,
+			"count", len(validCandidates),
+			"duration_ms", time.Since(started).Milliseconds())
+	}
+	return validCandidates, nil
+}
+
+func (c *manifestStreamResolver) debugLog(msg, cacheKey string, count int) {
+	if c.logger == nil {
+		return
+	}
+	c.logger.Debug(msg, "cache_key", cacheKey, "count", count)
 }
 
 func candidateCacheSize(candidates []StreamCandidate) int64 {
@@ -1002,6 +1079,7 @@ func main() {
 	resolver := &manifestStreamResolver{
 		client:       newProviderHTTPClient(),
 		releaseStore: releaseStore,
+		logger:       hclog.New(&hclog.LoggerOptions{Name: "silo-virtual-library-resolver"}),
 	}
 	monitor := newMediaMonitor(resolver, hclog.New(&hclog.LoggerOptions{Name: "silo-virtual-library-monitor"}))
 	monitor.releaseStore = releaseStore
