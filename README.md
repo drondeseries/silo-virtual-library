@@ -41,6 +41,8 @@ Registration and collection sync never contact the streaming provider. When the 
 
 Provider candidates are cached for 10 minutes by default. Set **Candidate Cache TTL (minutes)** from 1 to 10080 (seven days) to tune freshness versus provider load. A playback request can explicitly set `force_refresh` to bypass this cache; no provider URLs or credentials are persisted.
 
+Expired caches are not a stall: within a 10-minute grace window the previous candidates are served instantly while one background refresh repopulates them, so warm playback starts never wait on the provider. Beyond the grace window the lookup blocks on a fresh fetch, as before.
+
 Series release schedules are refreshed from TVmaze in the background. **Schedule Refresh Interval (minutes)** (30–10080, default 360) controls the cadence; changes apply after plugin restart. The Release Desk admin page shows upcoming air dates per tracked show and a manual refresh button. TVmaze requests are rate-limited internally, and sync passes are capped at 90 seconds so they never exceed Silo's scheduled-task deadline.
 
 Movie runtimes come from TMDB movie details when configured, with Cinemeta as fallback. Episode runtimes come from Cinemeta or TVMaze. Silo stores the canonical runtime before playback so growing HLS playlists do not make the seek bar expand second by second.

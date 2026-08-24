@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -701,5 +702,130 @@ func TestManifestStreamResolver_UnreleasedShortCircuit(t *testing.T) {
 	passResolver.Configure(resolverConfig{ManifestURL: "https://stream.example/manifest.json"})
 	if _, _, _, passErr := passResolver.GetCandidates(context.Background(), "virtual://movie/tt0100002"); passErr == nil || strings.Contains(passErr.Error(), "airs") {
 		t.Fatalf("released movie should reach provider path, got: %v", passErr)
+	}
+}
+
+func swrTestResolver(t *testing.T, transport roundTripperFunc) (*manifestStreamResolver, *int32) {
+	t.Helper()
+	var calls int32
+	resolver := &manifestStreamResolver{
+		client: &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			atomic.AddInt32(&calls, 1)
+			return transport(r)
+		})},
+	}
+	resolver.Configure(resolverConfig{ManifestURL: "https://stream.example/manifest.json", CacheTTLMinutes: 1})
+	return resolver, &calls
+}
+
+func stremioBody() *http.Response {
+	body := `{"streams":[{"name":"1080p","title":"Test","url":"https://provider.example/a.mkv"}]}`
+	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}
+}
+
+func TestCandidateCacheServesStaleWithinGraceAndRefreshesInBackground(t *testing.T) {
+	resolver, calls := swrTestResolver(t, func(*http.Request) (*http.Response, error) {
+		return stremioBody(), nil
+	})
+	// Seed an entry that expired two seconds ago (inside the grace window).
+	key := "movie|tt1000001"
+	cached := []StreamCandidate{{Name: "cached-1080p", URL: "https://provider.example/old.mkv"}}
+	resolver.storeCandidateCache(key, cached, time.Now().Add(-2*time.Second), time.Now().Add(-time.Minute), resolver.cacheGeneration)
+
+	done := make(chan struct{})
+	go func() {
+		candidates, _, _, err := resolver.GetCandidates(context.Background(), "virtual://movie/tt1000001")
+		if err != nil {
+			t.Errorf("stale serve error: %v", err)
+		}
+		if len(candidates) != 1 || candidates[0].Name != "cached-1080p" {
+			t.Errorf("expected stale cached candidate served instantly, got %#v", candidates)
+		}
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("stale serve blocked; grace path must return immediately")
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		resolver.cacheMu.Lock()
+		entry, ok := resolver.cache[key]
+		genOK := resolver.cacheGeneration == resolver.cacheGeneration
+		resolver.cacheMu.Unlock()
+		if ok && genOK && time.Now().Before(entry.expiresAt) && entry.candidates[0].Name == "1080p" {
+			if atomic.LoadInt32(calls) != 1 {
+				t.Fatalf("background refresh fetch count = %d, want 1", atomic.LoadInt32(calls))
+			}
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("background refresh did not replace the stale entry in time")
+}
+
+func TestCandidateCacheBeyondGraceBlocksOnProvider(t *testing.T) {
+	resolver, calls := swrTestResolver(t, func(*http.Request) (*http.Response, error) {
+		return stremioBody(), nil
+	})
+	key := "movie|tt1000002"
+	resolver.storeCandidateCache(key, []StreamCandidate{{Name: "ancient", URL: "https://provider.example/x.mkv"}},
+		time.Now().Add(-candidateStaleGrace-time.Minute), time.Now().Add(-30*time.Minute), resolver.cacheGeneration)
+
+	candidates, _, _, err := resolver.GetCandidates(context.Background(), "virtual://movie/tt1000002")
+	if err != nil {
+		t.Fatalf("beyond-grace lookup error: %v", err)
+	}
+	if len(candidates) != 1 || candidates[0].Name != "1080p" {
+		t.Fatalf("expected fresh provider candidate, got %#v", candidates)
+	}
+	if atomic.LoadInt32(calls) != 1 {
+		t.Fatalf("synchronous fetch count = %d, want 1", atomic.LoadInt32(calls))
+	}
+}
+
+func TestForceRefreshBypassesStaleGrace(t *testing.T) {
+	resolver, calls := swrTestResolver(t, func(*http.Request) (*http.Response, error) {
+		return stremioBody(), nil
+	})
+	key := "movie|tt1000003"
+	resolver.storeCandidateCache(key, []StreamCandidate{{Name: "stale", URL: "https://provider.example/s.mkv"}},
+		time.Now().Add(-2*time.Second), time.Now().Add(-time.Minute), resolver.cacheGeneration)
+
+	candidates, _, _, err := resolver.GetCandidatesFresh(context.Background(), "virtual://movie/tt1000003")
+	if err != nil {
+		t.Fatalf("force refresh error: %v", err)
+	}
+	if len(candidates) != 1 || candidates[0].Name != "1080p" {
+		t.Fatalf("expected fresh fetch to bypass stale entry, got %#v", candidates)
+	}
+	if atomic.LoadInt32(calls) != 1 {
+		t.Fatalf("forced synchronous fetch count = %d, want 1", atomic.LoadInt32(calls))
+	}
+}
+
+func TestConcurrentStaleLookupsTriggerSingleRefresh(t *testing.T) {
+	resolver, calls := swrTestResolver(t, func(*http.Request) (*http.Response, error) {
+		time.Sleep(80 * time.Millisecond)
+		return stremioBody(), nil
+	})
+	key := "movie|tt1000004"
+	resolver.storeCandidateCache(key, []StreamCandidate{{Name: "stale", URL: "https://provider.example/c.mkv"}},
+		time.Now().Add(-2*time.Second), time.Now().Add(-time.Minute), resolver.cacheGeneration)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _, _, _ = resolver.GetCandidates(context.Background(), "virtual://movie/tt1000004")
+		}()
+	}
+	wg.Wait()
+	time.Sleep(300 * time.Millisecond) // allow background refresh to land
+	if got := atomic.LoadInt32(calls); got > 1 {
+		t.Fatalf("concurrent stale lookups caused %d provider fetches, want at most 1", got)
 	}
 }
