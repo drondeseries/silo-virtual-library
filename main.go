@@ -440,6 +440,13 @@ func (c *manifestStreamResolver) fetchProviderCandidates(ctx context.Context, co
 	for i, stream := range payload.Streams {
 		parsed, parseErr := url.Parse(strings.TrimSpace(stream.URL))
 		if parseErr == nil && parsed.IsAbs() && (parsed.Scheme == "https" || parsed.Scheme == "http") {
+			// Some providers answer unavailable titles with a placeholder
+			// entry instead of an empty list. Persisting or ranking it makes
+			// every start pay a doomed probe and pollutes the catalog with
+			// ghost variants — drop it at ingestion.
+			if isProviderStubCandidate(stream) {
+				continue
+			}
 			stream.OriginalIndex = i
 			parseStreamDetails(&stream)
 			parseStreamMetadata(&stream)
@@ -462,6 +469,25 @@ func (c *manifestStreamResolver) fetchProviderCandidates(ctx context.Context, co
 			"duration_ms", time.Since(started).Milliseconds())
 	}
 	return validCandidates, nil
+}
+
+// isProviderStubCandidate reports whether a provider stream entry is the
+// conventional "nothing found" placeholder rather than a playable source.
+// Addons signal this via the entry's display text; the URL itself usually
+// still looks plausible, so it must be checked before ingestion.
+func isProviderStubCandidate(s StreamCandidate) bool {
+	hay := strings.ToLower(strings.Join([]string{s.Name, s.Title, s.Description}, " \n "))
+	for _, marker := range []string{
+		"no streams available",
+		"no streams found",
+		"nothing found",
+		"no results",
+	} {
+		if strings.Contains(hay, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *manifestStreamResolver) debugLog(msg, cacheKey string, count int) {

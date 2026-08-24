@@ -829,3 +829,26 @@ func TestConcurrentStaleLookupsTriggerSingleRefresh(t *testing.T) {
 		t.Fatalf("concurrent stale lookups caused %d provider fetches, want at most 1", got)
 	}
 }
+
+func TestProviderStubCandidatesFilteredOut(t *testing.T) {
+	body := `{"streams":[
+		{"name":"No streams available","description":"Try another addon","url":"https://provider.example/stub?result=abc"},
+		{"name":"1080p","title":"Real stream","url":"https://provider.example/real.mkv"},
+		{"name":"4K","title":"No results for this query","url":"https://provider.example/stub2"}
+	]}`
+	resolver := &manifestStreamResolver{
+		client: &http.Client{Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: http.StatusOK,
+				Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+		})},
+	}
+	resolver.Configure(resolverConfig{ManifestURL: "https://stream.example/manifest.json", CacheTTLMinutes: 1})
+
+	candidates, _, _, err := resolver.GetCandidates(context.Background(), "virtual://movie/tt1000009")
+	if err != nil {
+		t.Fatalf("GetCandidates error: %v", err)
+	}
+	if len(candidates) != 1 || candidates[0].Name != "1080p" {
+		t.Fatalf("expected only the real stream, got %#v", candidates)
+	}
+}
