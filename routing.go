@@ -1328,23 +1328,12 @@ func fetchTMDBRelease(ctx context.Context, id, key string) (time.Time, error) {
 			return earliest, nil
 		}
 	}
-	// For catalog movies without explicit Type 4/5/6 entries:
-	// If the earliest theatrical or premiere release was more than 90 days ago,
-	// presume home release.
-	var earliestTheatrical time.Time
-	for _, r := range results {
-		for _, d := range r.Dates {
-			if !d.Date.IsZero() && (earliestTheatrical.IsZero() || d.Date.Before(earliestTheatrical)) {
-				earliestTheatrical = d.Date
-			}
-		}
-	}
-	if !earliestTheatrical.IsZero() {
-		presumed := earliestTheatrical.AddDate(0, 0, 90)
-		if !presumed.After(time.Now()) {
-			return presumed, nil
-		}
-	}
+	// No Digital/Physical/TV date on record means the movie is still
+	// theatrical-only: keep it queued. The earlier "presume home release 90
+	// days after the earliest date" fallback admitted premiere and theatrical
+	// dates into that calculation, registering titles that were still only in
+	// theaters. Indexer RSS / Prowlarr confirmation remains the escape hatch
+	// for titles whose home release is real but not yet on TMDB.
 	return time.Time{}, errNoHomeRelease
 }
 
