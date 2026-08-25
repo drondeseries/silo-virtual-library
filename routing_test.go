@@ -169,10 +169,11 @@ func TestFetchTMDBReleaseUsesEarliestHomeReleaseFromAnyMarket(t *testing.T) {
 func TestFetchTMDBReleaseQueuesWhenAllMarketsAreTheatrical(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		// Far-future theatrical dates so this stays valid regardless of when
-		// the suite runs; dates within 90 days of "now" would eventually be
-		// presumed home releases by design.
-		_, _ = w.Write([]byte(`{"results":[{"iso_3166_1":"US","release_dates":[{"type":3,"release_date":"2099-07-10T00:00:00.000Z"}]},{"iso_3166_1":"FR","release_dates":[{"type":2,"release_date":"2099-07-20T00:00:00.000Z"}]}]}`))
+		// Past theatrical dates: a movie whose theatrical window opened months
+		// ago is still theatrical-only until an actual Digital/Physical/TV
+		// release appears, and must stay queued rather than being presumed
+		// released after 90 days.
+		_, _ = w.Write([]byte(`{"results":[{"iso_3166_1":"US","release_dates":[{"type":1,"release_date":"2026-04-20T00:00:00.000Z"},{"type":3,"release_date":"2026-07-10T00:00:00.000Z"}]},{"iso_3166_1":"FR","release_dates":[{"type":3,"release_date":"2026-07-15T00:00:00.000Z"}]}]}`))
 	}))
 	previous := tmdbBaseURL
 	tmdbBaseURL = server.URL
