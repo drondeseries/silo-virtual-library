@@ -34,13 +34,24 @@ const (
 	virtualPathPrefix        = "virtual://"
 	configKey                = "streaming"
 	maxResponseBytes         = 4 << 20
-	defaultCacheTTLMinutes   = 1
+	defaultCacheTTLMinutes   = 10
 	minCacheTTLMinutes       = 1
 	maxCacheTTLMinutes       = 10080
 	maxCandidateCacheEntries = 256
 	maxCandidateCacheBytes   = 16 << 20
 	maxVirtualCandidates     = 50
 	maxManifestResponseBytes = 256 << 10
+	// negativeCacheTTL bounds how long an empty provider answer is reused.
+	// Without it, a title the provider cannot serve re-paid a full 3-8s
+	// round-trip on every resolve — four times inside one playback start in
+	// production. Entries expire so newly added sources are noticed without
+	// operator action.
+	negativeCacheTTL = 2 * time.Minute
+	// freshServeFloor caps how aggressively forced lookups re-fetch. One
+	// playback start walks several candidate rounds; serving results younger
+	// than this floor even to GetCandidatesFresh keeps an entire attempt at
+	// one provider round-trip while bounding staleness well under the TTL.
+	freshServeFloor = 30 * time.Second
 	// candidateStaleGrace extends candidate-cache usefulness past its TTL:
 	// an expired-but-non-empty entry is served immediately while one
 	// background refresh repopulates it. Provider URLs are short-lived
@@ -143,6 +154,11 @@ func newUnreleasedError(imdbID string, airDate *time.Time, itemType string) *unr
 type candidateCacheEntry struct {
 	candidates []StreamCandidate
 	expiresAt  time.Time
+	// fetchedAt records when the provider actually answered, distinct from
+	// lastAccess which moves on every serve. The forced-lookup floor is
+	// judged against fetchedAt so repeated resolves inside one playback
+	// start stay on one round-trip.
+	fetchedAt  time.Time
 	lastAccess time.Time
 	sizeBytes  int64
 }
@@ -345,6 +361,25 @@ func (c *manifestStreamResolver) getCandidates(ctx context.Context, virtualPath 
 	}
 	cacheKey := mediaType + "|" + mediaID
 
+	if forceRefresh {
+		// Forced lookups still serve very recent answers. One playback start
+		// walks several resolve rounds; re-fetching within a single attempt
+		// multiplies provider latency without producing new information, so
+		// entries younger than the floor are served as-is regardless of
+		// emptiness. Anything older takes the full fetch path below.
+		now := time.Now()
+		c.cacheMu.Lock()
+		entry, ok := c.cache[cacheKey]
+		if sameGeneration := c.cacheGeneration == generation; sameGeneration && ok && now.Before(entry.fetchedAt.Add(freshServeFloor)) {
+			candidates := cloneCandidates(entry.candidates)
+			entry.lastAccess = now
+			c.cache[cacheKey] = entry
+			c.cacheMu.Unlock()
+			return candidates, mediaType, mediaID, nil
+		}
+		c.cacheMu.Unlock()
+	}
+
 	// Cache tiers: fresh serve → stale-in-grace serve + one background
 	// refresh → singleflight blocking fetch past grace or on force_refresh.
 	if !forceRefresh {
@@ -383,12 +418,23 @@ func (c *manifestStreamResolver) getCandidates(ctx context.Context, virtualPath 
 			c.cacheMu.Lock()
 			fresh, stillOK := c.cache[cacheKey]
 			c.cacheMu.Unlock()
-			if stillOK && now.Add(candidateStaleGrace).Before(time.Now()) == false && fresh.candidates != nil {
-				candidates := cloneCandidates(fresh.candidates)
-				return candidates, mediaType, mediaID, nil
+			if stillOK {
+				now := time.Now()
+				withinGrace := !now.After(fresh.expiresAt.Add(candidateStaleGrace))
+				switch {
+				case len(fresh.candidates) > 0 && withinGrace:
+					// Positive results stay servable through the same stale
+					// grace the direct tiers use.
+					return cloneCandidates(fresh.candidates), mediaType, mediaID, nil
+				case len(fresh.candidates) == 0 && now.Before(fresh.expiresAt):
+					// Negative-cache hit: the flight already proved the title
+					// is unavailable, so waiting callers must not re-pay the
+					// round-trip. Negatives never outlive their own short TTL.
+					return cloneCandidates(fresh.candidates), mediaType, mediaID, nil
+				}
 			}
-			// Flight completed but produced no usable entry (e.g. provider
-			// returned empty); fall through to our own attempt.
+			// Flight completed without a usable entry (expired, past grace,
+			// or absent); fall through to our own attempt.
 		}
 	}
 
@@ -580,12 +626,18 @@ func candidateCacheSize(candidates []StreamCandidate) int64 {
 }
 
 func (c *manifestStreamResolver) storeCandidateCache(key string, candidates []StreamCandidate, expiresAt, now time.Time, generation uint64) {
+	size := int64(0)
 	if len(candidates) == 0 {
-		return
-	}
-	size := candidateCacheSize(candidates)
-	if size > maxCandidateCacheBytes {
-		return
+		// Negative caching: an empty provider answer is stored briefly so
+		// repeated resolves of an unavailable title fail in microseconds
+		// instead of paying another 3-8s round-trip each. The short TTL keeps
+		// newly added sources discoverable without operator action.
+		expiresAt = now.Add(negativeCacheTTL)
+	} else {
+		size = candidateCacheSize(candidates)
+		if size > maxCandidateCacheBytes {
+			return
+		}
 	}
 	c.cacheMu.Lock()
 	defer c.cacheMu.Unlock()
@@ -622,6 +674,7 @@ func (c *manifestStreamResolver) storeCandidateCache(key string, candidates []St
 	c.cache[key] = candidateCacheEntry{
 		candidates: cloneCandidates(candidates),
 		expiresAt:  expiresAt,
+		fetchedAt:  now,
 		lastAccess: now,
 		sizeBytes:  size,
 	}

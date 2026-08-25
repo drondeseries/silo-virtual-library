@@ -66,12 +66,88 @@ func TestGetCandidatesFreshBypassesCache(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cached GetCandidates() error = %v", err)
 	}
+	// A forced lookup still serves entries younger than freshServeFloor so a
+	// single playback start cannot stack several provider round-trips.
+	freshWithinFloor, _, _, err := resolver.GetCandidatesFresh(context.Background(), "virtual://movie/tt0133093")
+	if err != nil {
+		t.Fatalf("GetCandidatesFresh() within floor error = %v", err)
+	}
+	if calls != 1 || first[0].URL != cached[0].URL || first[0].URL != freshWithinFloor[0].URL {
+		t.Fatalf("within floor: calls=%d first=%q cached=%q fresh=%q", calls, first[0].URL, cached[0].URL, freshWithinFloor[0].URL)
+	}
+
+	// Past the floor the forced lookup takes the provider path again.
+	backdateFetchedAt(t, resolver, "movie|tt0133093", freshServeFloor+time.Second)
 	fresh, _, _, err := resolver.GetCandidatesFresh(context.Background(), "virtual://movie/tt0133093")
 	if err != nil {
-		t.Fatalf("GetCandidatesFresh() error = %v", err)
+		t.Fatalf("GetCandidatesFresh() past floor error = %v", err)
 	}
-	if calls != 2 || first[0].URL != cached[0].URL || first[0].URL == fresh[0].URL {
-		t.Fatalf("calls=%d first=%q cached=%q fresh=%q", calls, first[0].URL, cached[0].URL, fresh[0].URL)
+	if calls != 2 || first[0].URL == fresh[0].URL {
+		t.Fatalf("past floor: calls=%d first=%q fresh=%q", calls, first[0].URL, fresh[0].URL)
+	}
+}
+
+// backdateFetchedAt ages a cache entry's fetch time without touching its TTL,
+// simulating an entry old enough that forced lookups must refetch.
+func backdateFetchedAt(t *testing.T, resolver *manifestStreamResolver, cacheKey string, age time.Duration) {
+	t.Helper()
+	resolver.cacheMu.Lock()
+	defer resolver.cacheMu.Unlock()
+	entry, ok := resolver.cache[cacheKey]
+	if !ok {
+		t.Fatalf("cache key %q not present", cacheKey)
+	}
+	entry.fetchedAt = entry.fetchedAt.Add(-age)
+	resolver.cache[cacheKey] = entry
+}
+
+// An empty provider answer must be cached: a title the provider cannot serve
+// otherwise re-paid a full round-trip on every resolve — four inside one
+// playback start in production.
+func TestNegativeCacheServesEmptyResultsWithoutRefetching(t *testing.T) {
+	calls := 0
+	client := &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		calls++
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"streams":[]}`)), Header: make(http.Header)}, nil
+	})}
+	resolver := &manifestStreamResolver{client: client}
+	resolver.Configure(resolverConfig{ManifestURL: "https://aio.example/manifest.json"})
+
+	for range 3 {
+		candidates, _, _, err := resolver.GetCandidates(context.Background(), "virtual://movie/tt0000000")
+		if err != nil {
+			t.Fatalf("GetCandidates() error = %v", err)
+		}
+		if len(candidates) != 0 {
+			t.Fatalf("candidates = %d, want empty", len(candidates))
+		}
+		fresh, _, _, err := resolver.GetCandidatesFresh(context.Background(), "virtual://movie/tt0000000")
+		if err != nil {
+			t.Fatalf("GetCandidatesFresh() error = %v", err)
+		}
+		if len(fresh) != 0 {
+			t.Fatalf("fresh candidates = %d, want empty", len(fresh))
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("provider calls = %d, want 1 (negative cache must absorb repeats)", calls)
+	}
+
+	// Once the negative TTL lapses the plugin re-checks upstream so newly
+	// added sources are noticed without operator action.
+	negativeKey := "movie|tt0000000"
+	resolver.cacheMu.Lock()
+	entry := resolver.cache[negativeKey]
+	entry.fetchedAt = entry.fetchedAt.Add(-negativeCacheTTL - time.Second)
+	entry.expiresAt = entry.expiresAt.Add(-negativeCacheTTL - time.Second)
+	resolver.cache[negativeKey] = entry
+	resolver.cacheMu.Unlock()
+
+	if _, _, _, err := resolver.GetCandidates(context.Background(), "virtual://movie/tt0000000"); err != nil {
+		t.Fatalf("GetCandidates() after negative expiry error = %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("provider calls after expiry = %d, want 2", calls)
 	}
 }
 
