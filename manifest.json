@@ -1,6 +1,6 @@
 {
   "plugin_id": "com.drondeseries.silo-virtual-library",
-  "version": "0.4.103",
+  "version": "0.4.104",
   "silo_api_version": "v1",
   "capabilities": [
     {
@@ -114,7 +114,7 @@
           {
             "key": "movie_library_id",
             "label": "Movies Library",
-            "description": "Destination Silo Movies library. Need one? Create it at [Settings -> Libraries](/admin/libraries) and use the \"Add Virtual\" button on the Folders tab — no local storage required.",
+            "description": "Destination Silo Movies library. Need one? Create it at [Settings -> Libraries](/admin/libraries) and use the \"Add Virtual\" button on the Folders tab \u2014 no local storage required.",
             "control": "ADMIN_FORM_CONTROL_SELECT",
             "dynamic_options": true,
             "required": false
@@ -122,7 +122,7 @@
           {
             "key": "series_library_id",
             "label": "Series Library",
-            "description": "Destination Silo Series library. Need one? Create it at [Settings -> Libraries](/admin/libraries) and use the \"Add Virtual\" button on the Folders tab — no local storage required.",
+            "description": "Destination Silo Series library. Need one? Create it at [Settings -> Libraries](/admin/libraries) and use the \"Add Virtual\" button on the Folders tab \u2014 no local storage required.",
             "control": "ADMIN_FORM_CONTROL_SELECT",
             "dynamic_options": true,
             "required": false
@@ -132,7 +132,7 @@
             "label": "Manifest URL",
             "description": "Full streaming provider manifest URL (e.g. AIOStreams, StreamNZB, or any Stremio-compatible addon). Must include the full tokenized path ending in /manifest.json.",
             "control": "ADMIN_FORM_CONTROL_PASSWORD",
-            "placeholder": "https://…/manifest.json",
+            "placeholder": "https://\u2026/manifest.json",
             "required": true,
             "secret": true
           },
@@ -321,7 +321,7 @@
           {
             "key": "cache_ttl_minutes",
             "label": "Candidate Cache TTL (minutes)",
-            "description": "How long stream candidates are cached before re-fetching from the provider (1–10080 minutes). Lower = fresher results, higher = faster playback.",
+            "description": "How long stream candidates are cached before re-fetching from the provider (1\u201310080 minutes). Lower = fresher results, higher = faster playback.",
             "control": "ADMIN_FORM_CONTROL_NUMBER",
             "placeholder": "10"
           },
