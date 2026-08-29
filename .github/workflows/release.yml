@@ -51,7 +51,7 @@ jobs:
       - name: Run tests
         run: |
           go test ./...
-          python3 -m pytest scripts/test_release_tool.py -q
+          python3 -m unittest scripts/test_release_tool.py -v
 
   build:
     needs: preflight
