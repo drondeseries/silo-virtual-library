@@ -108,11 +108,10 @@ jobs:
       - name: Show provenance
         run: |
           cat release/provenance.json
-       - name: Attest release artifacts
-         uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
-         with:
-           subject-path: release/*
-
+      - name: Attest release artifacts
+        uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
+        with:
+          subject-path: release/*
       - name: Publish GitHub release (idempotent / immutable)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
