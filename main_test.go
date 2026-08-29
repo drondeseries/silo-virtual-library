@@ -698,8 +698,8 @@ func TestParseStreamDetailsUsesBoundedAudioAndHDRMarkers(t *testing.T) {
 
 	actual := StreamCandidate{Title: "2160p DV E-AC-3 Atmos"}
 	parseStreamDetails(&actual)
-	if actual.HDR != "dv" || actual.CodecAudio != "atmos" {
-		t.Fatalf("parsed metadata = audio %q HDR %q", actual.CodecAudio, actual.HDR)
+	if actual.HDR != "dv" || actual.CodecAudio != "eac3" || !actual.HasAtmos {
+		t.Fatalf("parsed metadata = audio %q (atmos: %v) HDR %q", actual.CodecAudio, actual.HasAtmos, actual.HDR)
 	}
 }
 
@@ -996,3 +996,74 @@ func TestHardExpiredSingleflightDeduplicates(t *testing.T) {
 		t.Fatalf("hard-expired dedup fetch count = %d, want 1", got)
 	}
 }
+
+func TestCandidateExpiryAndHeadersExtraction(t *testing.T) {
+	futureUnix := time.Now().Add(2 * time.Hour).Unix()
+	urlWithExp := fmt.Sprintf("https://provider.example/stream.mp4?token=xyz&expires=%d", futureUnix)
+	exp := parseURLExpiration(urlWithExp)
+	if exp.IsZero() || !exp.After(time.Now()) {
+		t.Fatalf("parseURLExpiration failed: got %v", exp)
+	}
+
+	headers := extractProxyRequestHeaders(map[string]any{
+		"request": map[string]any{
+			"Referer":    "https://stremio.example/",
+			"User-Agent": "Mozilla/5.0",
+			"Secret":     "should-be-dropped",
+		},
+	})
+	if headers["Referer"] != "https://stremio.example/" || headers["User-Agent"] != "Mozilla/5.0" {
+		t.Fatalf("extracted headers incorrect: %#v", headers)
+	}
+	if _, secretFound := headers["Secret"]; secretFound {
+		t.Fatalf("unallowed header 'Secret' was extracted: %#v", headers)
+	}
+}
+
+func TestResolveVirtualStreamHonorsExclusionsAndPreferred(t *testing.T) {
+	body := `{"streams":[
+		{"name":"1080p","title":"Candidate A","url":"https://provider.example/a.mkv"},
+		{"name":"1080p","title":"Candidate B","url":"https://provider.example/b.mkv"},
+		{"name":"1080p","title":"Candidate C","url":"https://provider.example/c.mkv"}
+	]}`
+	resolver := &manifestStreamResolver{
+		client: &http.Client{Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: http.StatusOK,
+				Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+		})},
+	}
+	resolver.Configure(resolverConfig{ManifestURL: "https://stream.example/manifest.json"})
+	provider := &virtualStreamProvider{resolver: resolver}
+
+	candidates, _, _, _ := resolver.GetCandidates(context.Background(), "virtual://movie/tt3000001")
+	if len(candidates) != 3 {
+		t.Fatalf("expected 3 candidates, got %d", len(candidates))
+	}
+	candA_ID := candidateVariantID(candidates[0])
+	candB_ID := candidateVariantID(candidates[1])
+	candC_ID := candidateVariantID(candidates[2])
+
+	// Request with candA excluded, candC preferred
+	resp, err := provider.ResolveVirtualStream(context.Background(), &pb.ResolveVirtualStreamRequest{
+		CapabilityId:         "stremio-stream-resolver",
+		MediaType:            "movie",
+		ExternalIds:          map[string]string{"imdb": "tt3000001"},
+		ExcludedCandidateIds: []string{candA_ID},
+		PreferredCandidateId: candC_ID,
+	})
+	if err != nil {
+		t.Fatalf("ResolveVirtualStream error: %v", err)
+	}
+	resCandidates := resp.GetResult().GetCandidates()
+	if len(resCandidates) != 2 {
+		t.Fatalf("expected 2 candidates after exclusion, got %d", len(resCandidates))
+	}
+	// First candidate should be candC because it was preferred and not excluded
+	if resCandidates[0].GetCandidateId() != candC_ID {
+		t.Fatalf("first candidate = %q, want preferred %q", resCandidates[0].GetCandidateId(), candC_ID)
+	}
+	if resCandidates[1].GetCandidateId() != candB_ID {
+		t.Fatalf("second candidate = %q, want %q", resCandidates[1].GetCandidateId(), candB_ID)
+	}
+}
+

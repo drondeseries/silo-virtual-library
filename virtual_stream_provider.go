@@ -9,6 +9,7 @@ import (
 
 	pb "github.com/Silo-Server/silo-plugin-sdk/pkg/pluginproto/silo/plugin/v1"
 	"google.golang.org/protobuf/types/known/structpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const virtualStreamProviderID = "com.drondeseries.silo-virtual-library"
@@ -87,6 +88,35 @@ func (s *virtualStreamProvider) ResolveVirtualStream(ctx context.Context, req *p
 		}}, nil
 	}
 	candidates = s.resolver.SelectCandidates(path, candidates)
+	if len(req.GetExcludedCandidateIds()) > 0 {
+		excluded := make(map[string]struct{}, len(req.GetExcludedCandidateIds()))
+		for _, id := range req.GetExcludedCandidateIds() {
+			if trimmed := strings.TrimSpace(id); trimmed != "" {
+				excluded[trimmed] = struct{}{}
+			}
+		}
+		filtered := make([]StreamCandidate, 0, len(candidates))
+		for _, c := range candidates {
+			if _, drop := excluded[candidateVariantID(c)]; !drop {
+				filtered = append(filtered, c)
+			}
+		}
+		candidates = filtered
+	}
+	if preferredID := strings.TrimSpace(req.GetPreferredCandidateId()); preferredID != "" && len(candidates) > 1 {
+		for i, c := range candidates {
+			if candidateVariantID(c) == preferredID {
+				if i > 0 {
+					reordered := make([]StreamCandidate, 0, len(candidates))
+					reordered = append(reordered, c)
+					reordered = append(reordered, candidates[:i]...)
+					reordered = append(reordered, candidates[i+1:]...)
+					candidates = reordered
+				}
+				break
+			}
+		}
+	}
 	quality := s.resolver.qualityConfig()
 	resultMetadata, metadataErr := structpb.NewStruct(map[string]any{"cache_ttl_seconds": float64(s.resolver.cacheTTLSeconds())})
 	if metadataErr != nil {
@@ -108,16 +138,23 @@ func (s *virtualStreamProvider) ResolveVirtualStream(ctx context.Context, req *p
 		if metadataErr != nil {
 			return nil, fmt.Errorf("build candidate metadata: %w", metadataErr)
 		}
-		result.Candidates = append(result.Candidates, &pb.VirtualStreamCandidate{
+		candProto := &pb.VirtualStreamCandidate{
 			CandidateId: candidateVariantID(candidate), ProviderId: virtualStreamProviderID, TemporaryUri: candidate.URL,
 			Rank: int32(rank + 1), Resolution: &pb.VirtualStreamResolution{Label: candidate.Resolution},
 			VideoCodec: candidate.CodecVideo, AudioCodec: candidate.CodecAudio,
 			Hdr:           &pb.VirtualStreamHDR{IsHdr: candidate.HDR != "", Format: candidate.HDR, HasDolbyVision: strings.EqualFold(candidate.HDR, "dv")},
 			FileSizeBytes: candidate.FileSize, Container: candidate.Container,
 			AudioLanguages: candidate.AudioLanguages, SubtitleLanguages: candidate.SubtitleLanguages,
-			Metadata:     metadata,
-			Availability: &pb.VirtualStreamAvailability{State: pb.VirtualStreamAvailabilityState_VIRTUAL_STREAM_AVAILABILITY_STATE_AVAILABLE},
-		})
+			RequestHeaders: candidate.RequestHeaders,
+			HasAtmos:       candidate.HasAtmos,
+			QualityScore:   int32(candidate.QualityScore),
+			Metadata:       metadata,
+			Availability:   &pb.VirtualStreamAvailability{State: pb.VirtualStreamAvailabilityState_VIRTUAL_STREAM_AVAILABILITY_STATE_AVAILABLE},
+		}
+		if !candidate.ExpiresAt.IsZero() {
+			candProto.ExpiresAt = timestamppb.New(candidate.ExpiresAt)
+		}
+		result.Candidates = append(result.Candidates, candProto)
 	}
 	if len(result.Candidates) == 0 {
 		result.Availability = &pb.VirtualStreamAvailability{State: pb.VirtualStreamAvailabilityState_VIRTUAL_STREAM_AVAILABILITY_STATE_UNAVAILABLE, Message: "provider returned no streams"}

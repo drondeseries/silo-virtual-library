@@ -1,10 +1,13 @@
 package main
 
 import (
+	"net/url"
+	"path"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 var streamSizePattern = regexp.MustCompile(`(?i)\b\d+(?:\.\d+)?\s*(?:TB|GB|MB)\b`)
@@ -26,20 +29,26 @@ type StreamCandidate struct {
 	Description   string
 	Title         string
 	BehaviorHints struct {
-		VideoHash  string `json:"videoHash"`
-		Filename   string `json:"filename"`
-		BingeGroup string `json:"bingeGroup"`
+		VideoHash    string         `json:"videoHash"`
+		Filename     string         `json:"filename"`
+		BingeGroup   string         `json:"bingeGroup"`
+		NotWebReady  bool           `json:"notWebReady"`
+		ProxyHeaders map[string]any `json:"proxyHeaders"`
 	}
 
 	Resolution        string
 	CodecVideo        string
 	CodecAudio        string
+	HasAtmos          bool
 	HDR               string
 	SourceType        string
 	FileSize          int64
 	Container         string
 	AudioLanguages    []string
 	SubtitleLanguages []string
+	ExpiresAt         time.Time
+	RequestHeaders    map[string]string
+	QualityScore      int
 	OriginalIndex     int
 }
 
@@ -77,10 +86,9 @@ func parseStreamDetails(s *StreamCandidate) {
 		s.CodecVideo = "av1"
 	}
 
-	// Codec Audio
-	if atmosPattern.MatchString(fullText) {
-		s.CodecAudio = "atmos"
-	} else if trueHDPattern.MatchString(fullText) {
+	// Codec Audio & Atmos
+	s.HasAtmos = atmosPattern.MatchString(fullText)
+	if trueHDPattern.MatchString(fullText) {
 		s.CodecAudio = "truehd"
 	} else if dtsHDPattern.MatchString(fullText) {
 		s.CodecAudio = "dts-hd"
@@ -92,6 +100,8 @@ func parseStreamDetails(s *StreamCandidate) {
 		s.CodecAudio = "ac3"
 	} else if aacPattern.MatchString(fullText) {
 		s.CodecAudio = "aac"
+	} else if s.HasAtmos {
+		s.CodecAudio = "eac3"
 	}
 
 	// HDR
@@ -154,13 +164,92 @@ func parseStreamMetadata(s *StreamCandidate) {
 			s.AudioLanguages = append(s.AudioLanguages, match)
 		}
 	}
-	lowerURL := strings.ToLower(s.URL)
-	for _, ext := range []string{".mkv", ".mp4", ".webm", ".avi", ".mov"} {
-		if strings.Contains(lowerURL, ext) {
-			s.Container = strings.TrimPrefix(ext, ".")
-			break
+
+	// Container resolution: prefer behaviorHints.filename, then URL, then text
+	s.Container = inferContainer(s.BehaviorHints.Filename, s.URL, text)
+
+	// URL expiry extraction
+	s.ExpiresAt = parseURLExpiration(s.URL)
+
+	// Request headers extraction from behaviorHints.proxyHeaders
+	s.RequestHeaders = extractProxyRequestHeaders(s.BehaviorHints.ProxyHeaders)
+}
+
+func inferContainer(filename, streamURL, text string) string {
+	knownExts := []string{".mkv", ".mp4", ".webm", ".avi", ".mov", ".ts", ".m2ts", ".m4v"}
+	if filename != "" {
+		ext := strings.ToLower(path.Ext(filename))
+		for _, k := range knownExts {
+			if ext == k {
+				return strings.TrimPrefix(k, ".")
+			}
 		}
 	}
+	lowerURL := strings.ToLower(streamURL)
+	for _, ext := range knownExts {
+		if strings.Contains(lowerURL, ext) {
+			return strings.TrimPrefix(ext, ".")
+		}
+	}
+	lowerText := strings.ToLower(text)
+	for _, ext := range knownExts {
+		if strings.Contains(lowerText, ext) {
+			return strings.TrimPrefix(ext, ".")
+		}
+	}
+	return ""
+}
+
+func parseURLExpiration(rawURL string) time.Time {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || parsed == nil {
+		return time.Time{}
+	}
+	q := parsed.Query()
+	for _, key := range []string{"expires", "expire", "exp", "Expires", "X-Amz-Expires", "x-amz-expires"} {
+		val := strings.TrimSpace(q.Get(key))
+		if val == "" {
+			continue
+		}
+		if sec, err := strconv.ParseInt(val, 10, 64); err == nil && sec > 0 {
+			if sec > 1000000000 { // unix timestamp
+				t := time.Unix(sec, 0).UTC()
+				if t.After(time.Now()) {
+					return t.Add(-15 * time.Second) // safety margin
+				}
+			}
+		}
+	}
+	return time.Time{}
+}
+
+func extractProxyRequestHeaders(proxyHeaders map[string]any) map[string]string {
+	if len(proxyHeaders) == 0 {
+		return nil
+	}
+	reqRaw, ok := proxyHeaders["request"]
+	if !ok {
+		reqRaw = proxyHeaders
+	}
+	reqMap, ok := reqRaw.(map[string]any)
+	if !ok {
+		return nil
+	}
+	out := make(map[string]string)
+	for k, v := range reqMap {
+		sVal, ok := v.(string)
+		if !ok || strings.TrimSpace(sVal) == "" {
+			continue
+		}
+		lowerK := strings.ToLower(strings.TrimSpace(k))
+		if lowerK == "referer" || lowerK == "origin" || lowerK == "user-agent" {
+			out[k] = strings.TrimSpace(sVal)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func resolutionScore(res string) int {
@@ -253,6 +342,10 @@ func customFormatScore(candidate StreamCandidate, formats []CustomFormat) (int, 
 }
 
 func sortCandidatesForProfile(candidates []StreamCandidate, p QualityProfile, formats []CustomFormat) {
+	for idx := range candidates {
+		score, _ := customFormatScore(candidates[idx], formats)
+		candidates[idx].QualityScore = score
+	}
 	sort.SliceStable(candidates, func(i, j int) bool {
 		c1, c2 := candidates[i], candidates[j]
 		s1, reject1 := customFormatScore(c1, formats)
@@ -272,3 +365,4 @@ func sortCandidatesForProfile(candidates []StreamCandidate, p QualityProfile, fo
 		return c1.OriginalIndex < c2.OriginalIndex
 	})
 }
+
