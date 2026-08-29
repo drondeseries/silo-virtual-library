@@ -12,6 +12,10 @@ concurrency:
   group: release-pipeline
   cancel-in-progress: false
 
+env:
+  GO_VERSION: "1.26.0"
+  PYTHON: "python3"
+
 jobs:
   preflight:
     runs-on: ubuntu-latest
@@ -19,30 +23,35 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version: "1.26"
+          go-version: "${{ env.GO_VERSION }}"
       - name: Validate release metadata and strict SemVer
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           MANIFEST_VERSION="$(jq -er '.version' manifest.json)"
           CATALOG_VERSION="$(jq -er '.plugins[0].manifest.version' catalog.json)"
+          TOOL_SCRIPT="$(pwd)/scripts/release_tool.py"
 
-          # Strict SemVer validation
-          python3 -c '
-          import sys, re
-          v = sys.argv[1]
-          if not re.match(r"^(\d+)\.(\d+)\.(\d+)(?:-([0-9a-zA-Z.-]+))?$", v):
-              print(f"Invalid SemVer version string: {v}", file=sys.stderr)
-              sys.exit(1)
-          ' "$VERSION"
+          # Strict SemVer 2.0 validation (leading zeros / malformed identifiers rejected)
+          python3 "$TOOL_SCRIPT" validate-semver "$VERSION"
+          python3 "$TOOL_SCRIPT" validate-semver "$MANIFEST_VERSION"
+          python3 "$TOOL_SCRIPT" validate-semver "$CATALOG_VERSION"
 
+          # manifest.json declares the NEW version (embedded in the binary)
           test "$VERSION" = "$MANIFEST_VERSION"
-          test "$VERSION" = "$CATALOG_VERSION"
+
+          # The committed catalog.json describes the LAST VERIFIED release (real, published
+          # hashes) — it must be a strictly older valid release than the one being cut.
+          # This keeps the tag's catalog provenance truthful: immutable tags cannot be
+          # rewritten with freshly-produced hashes after CI runs.
+          RELATION="$(python3 "$TOOL_SCRIPT" compare-semver "$CATALOG_VERSION" "$VERSION")"
+          test "$RELATION" = "LESS"
+
           jq -e '.capabilities[] | select(.type == "virtual_stream_provider.v1") | .virtual_stream_provider.supported_media_types | length > 0' manifest.json >/dev/null
           jq -e '.plugins[0].manifest.capabilities[] | select(.type == "virtual_stream_provider.v1") | .virtual_stream_provider.supported_media_types | length > 0' catalog.json >/dev/null
       - name: Run tests
-        run: go test ./...
+        run: |
+          go test ./...
+          python3 -m pytest scripts/test_release_tool.py -q
 
   build:
     needs: preflight
@@ -60,8 +69,8 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version: "1.26"
-      - name: Build plugin binary
+          go-version: "${{ env.GO_VERSION }}"
+      - name: Build plugin binary (reproducible, pinned toolchain)
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
@@ -80,37 +89,34 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "${{ env.GO_VERSION }}"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: artifacts
-      - name: Prepare assets and checksums
+      - name: Prepare assets, checksums, and provenance
         run: |
           mkdir release
           find artifacts -type f -name 'plugin-*' -exec cp {} release/ \;
           cd release
           sha256sum plugin-* > checksums.txt
+          cd ..
+          python3 scripts/release_tool.py generate-provenance release "$GITHUB_REF_NAME" "$GITHUB_SHA" "${{ env.GO_VERSION }}"
+      - name: Show provenance
+        run: |
+          cat release/provenance.json
       - name: Publish GitHub release (idempotent / immutable)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "Release $GITHUB_REF_NAME already exists on GitHub. Verifying asset hash integrity for idempotent resume..."
+            echo "Release $GITHUB_REF_NAME already exists on GitHub. Verifying exact asset set and hashes for idempotent resume..."
             CHECK_DIR="$(mktemp -d)"
             gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --dir "$CHECK_DIR"
-            for f in plugin-linux-amd64 plugin-linux-arm64 plugin-darwin-arm64 checksums.txt; do
-              if [ ! -f "$CHECK_DIR/$f" ]; then
-                echo "::error::Existing release $GITHUB_REF_NAME is missing expected asset $f. Refusing to modify."
-                exit 1
-              fi
-              BUILT_HASH="$(sha256sum "release/$f" | awk '{print $1}')"
-              EXISTING_HASH="$(sha256sum "$CHECK_DIR/$f" | awk '{print $1}')"
-              if [ "$BUILT_HASH" != "$EXISTING_HASH" ]; then
-                echo "::error::Existing release $GITHUB_REF_NAME asset $f hash ($EXISTING_HASH) does not match built hash ($BUILT_HASH). Refusing to clobber."
-                exit 1
-              fi
-            done
+            python3 "$TOOL_SCRIPT" verify-existing-assets "$CHECK_DIR" "$RELEASE_DIR"
             rm -rf "$CHECK_DIR"
-            echo "All existing release asset hashes match built artifacts perfectly. Proceeding to ensure catalog.json is current."
+            echo "Existing release matches built artifacts exactly. Proceeding to ensure catalog.json is current."
           else
             echo "Creating new immutable release $GITHUB_REF_NAME..."
             gh release create "$GITHUB_REF_NAME" \
@@ -120,7 +126,8 @@ jobs:
               release/plugin-linux-amd64 \
               release/plugin-linux-arm64 \
               release/plugin-darwin-arm64 \
-              release/checksums.txt
+              release/checksums.txt \
+              release/provenance.json
           fi
       - name: Update catalog.json on main (strict SemVer with retry exhaustion guard)
         env:
@@ -132,6 +139,10 @@ jobs:
           LINUX_AMD64_HASH=$(sha256sum release/plugin-linux-amd64 | awk '{print $1}')
           LINUX_ARM64_HASH=$(sha256sum release/plugin-linux-arm64 | awk '{print $1}')
           DARWIN_ARM64_HASH=$(sha256sum release/plugin-darwin-arm64 | awk '{print $1}')
+
+          # Absolute path to the tagged checkout tools - robust regardless of cwd
+          TOOL_SCRIPT="$(pwd)/scripts/release_tool.py"
+          RELEASE_DIR="$(pwd)/release"
 
           MAIN_WORKTREE="$(mktemp -d)"
           git clone --branch main "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$MAIN_WORKTREE"
@@ -148,34 +159,8 @@ jobs:
 
             CURRENT_CATALOG_VERSION="$(jq -er '.plugins[0].manifest.version' catalog.json)"
 
-            SEMVER_RELATION=$(python3 -c '
-          import sys, re
-
-          def parse_semver(v):
-              m = re.match(r"^(\d+)\.(\d+)\.(\d+)(?:-([0-9a-zA-Z.-]+))?$", v)
-              if not m:
-                  return None
-              major, minor, patch = int(m.group(1)), int(m.group(2)), int(m.group(3))
-              prerelease = m.group(4)
-              pr_tuple = (1, "") if prerelease is None else (0, prerelease)
-              return (major, minor, patch, pr_tuple)
-
-          current = parse_semver(sys.argv[1])
-          target = parse_semver(sys.argv[2])
-          if not current or not target:
-              print("INVALID")
-          elif target > current:
-              print("GREATER")
-          elif target == current:
-              print("EQUAL")
-          else:
-              print("LESS")
-          ' "$CURRENT_CATALOG_VERSION" "$VERSION")
-
-            if [ "$SEMVER_RELATION" = "INVALID" ]; then
-              echo "::error::Invalid SemVer encountered (current=$CURRENT_CATALOG_VERSION, target=$VERSION)"
-              exit 1
-            fi
+            # Compare with strict SemVer 2.0 tooling from the tagged checkout
+            SEMVER_RELATION=$(python3 "$TOOL_SCRIPT" compare-semver "$CURRENT_CATALOG_VERSION" "$VERSION")
 
             if [ "$SEMVER_RELATION" = "LESS" ]; then
               echo "Warning: main catalog version ($CURRENT_CATALOG_VERSION) is strictly newer than release version ($VERSION). Skipping catalog update."
@@ -183,30 +168,8 @@ jobs:
               break
             fi
 
-            jq --arg ver "$VERSION" \
-               --arg tag "$TAG" \
-               --arg amd64 "$LINUX_AMD64_HASH" \
-               --arg arm64 "$LINUX_ARM64_HASH" \
-               --arg darwin "$DARWIN_ARM64_HASH" '
-               def control_number:
-                 {"ADMIN_FORM_CONTROL_UNSPECIFIED":0,
-                  "ADMIN_FORM_CONTROL_TEXT":1,
-                  "ADMIN_FORM_CONTROL_TEXTAREA":2,
-                  "ADMIN_FORM_CONTROL_PASSWORD":3,
-                  "ADMIN_FORM_CONTROL_NUMBER":4,
-                  "ADMIN_FORM_CONTROL_SWITCH":5,
-                  "ADMIN_FORM_CONTROL_SELECT":6,
-                  "ADMIN_FORM_CONTROL_MULTI_SELECT":7}[.];
-               .plugins[0].manifest.version = $ver |
-               (.plugins[0].manifest.global_config_schema[]?.admin_form.fields[]?.control) |=
-                 (if type == "string" then control_number else . end) |
-                 .plugins[0].checksums_url = ("https://github.com/drondeseries/silo-virtual-library/releases/download/" + $tag + "/checksums.txt") |
-                .plugins[0].binaries["linux/amd64"].url = ("https://github.com/drondeseries/silo-virtual-library/releases/download/" + $tag + "/plugin-linux-amd64") |
-                .plugins[0].binaries["linux/amd64"].checksum = $amd64 |
-                .plugins[0].binaries["linux/arm64"].url = ("https://github.com/drondeseries/silo-virtual-library/releases/download/" + $tag + "/plugin-linux-arm64") |
-                .plugins[0].binaries["linux/arm64"].checksum = $arm64 |
-                .plugins[0].binaries["darwin/arm64"].url = ("https://github.com/drondeseries/silo-virtual-library/releases/download/" + $tag + "/plugin-darwin-arm64") |
-                 .plugins[0].binaries["darwin/arm64"].checksum = $darwin' catalog.json > catalog.tmp && mv catalog.tmp catalog.json
+            python3 "$TOOL_SCRIPT" update-catalog catalog.json "$TAG" \
+              "$LINUX_AMD64_HASH" "$LINUX_ARM64_HASH" "$DARWIN_ARM64_HASH"
 
             git add catalog.json
             if git diff --staged --quiet; then
