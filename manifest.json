@@ -1,6 +1,6 @@
 {
   "plugin_id": "com.drondeseries.silo-virtual-library",
-  "version": "0.4.95",
+  "version": "0.4.96",
   "silo_api_version": "v1",
   "capabilities": [
     {

@@ -1005,6 +1005,14 @@ func TestCandidateExpiryAndHeadersExtraction(t *testing.T) {
 		t.Fatalf("parseURLExpiration failed: got %v", exp)
 	}
 
+	// Test AWS SigV4 signed URL expiration parsing
+	amzDateStr := time.Now().UTC().Format("20060102T150405Z")
+	amzURL := fmt.Sprintf("https://s3.example.com/bucket/video.mp4?X-Amz-Date=%s&X-Amz-Expires=3600", amzDateStr)
+	amzExp := parseURLExpiration(amzURL)
+	if amzExp.IsZero() || !amzExp.After(time.Now().Add(3500*time.Second)) {
+		t.Fatalf("parseURLExpiration for AWS SigV4 failed: got %v", amzExp)
+	}
+
 	headers := extractProxyRequestHeaders(map[string]any{
 		"request": map[string]any{
 			"Referer":    "https://stremio.example/",
@@ -1066,4 +1074,3 @@ func TestResolveVirtualStreamHonorsExclusionsAndPreferred(t *testing.T) {
 		t.Fatalf("second candidate = %q, want %q", resCandidates[1].GetCandidateId(), candB_ID)
 	}
 }
-

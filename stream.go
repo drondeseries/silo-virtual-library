@@ -206,7 +206,35 @@ func parseURLExpiration(rawURL string) time.Time {
 		return time.Time{}
 	}
 	q := parsed.Query()
-	for _, key := range []string{"expires", "expire", "exp", "Expires", "X-Amz-Expires", "x-amz-expires"} {
+
+	// 1. AWS SigV4 signed URLs: X-Amz-Expires (duration in seconds) + X-Amz-Date
+	amzExpires := strings.TrimSpace(q.Get("X-Amz-Expires"))
+	if amzExpires == "" {
+		amzExpires = strings.TrimSpace(q.Get("x-amz-expires"))
+	}
+	if amzExpires != "" {
+		if durSec, err := strconv.ParseInt(amzExpires, 10, 64); err == nil && durSec > 0 {
+			amzDate := strings.TrimSpace(q.Get("X-Amz-Date"))
+			if amzDate == "" {
+				amzDate = strings.TrimSpace(q.Get("x-amz-date"))
+			}
+			baseTime := time.Now().UTC()
+			if amzDate != "" {
+				if t, err := time.Parse("20060102T150405Z", amzDate); err == nil {
+					baseTime = t.UTC()
+				} else if t, err := time.Parse(time.RFC3339, amzDate); err == nil {
+					baseTime = t.UTC()
+				}
+			}
+			t := baseTime.Add(time.Duration(durSec) * time.Second)
+			if t.After(time.Now()) {
+				return t.Add(-15 * time.Second)
+			}
+		}
+	}
+
+	// 2. Absolute Unix timestamp expiration params
+	for _, key := range []string{"expires", "expire", "exp", "Expires"} {
 		val := strings.TrimSpace(q.Get(key))
 		if val == "" {
 			continue
@@ -365,4 +393,3 @@ func sortCandidatesForProfile(candidates []StreamCandidate, p QualityProfile, fo
 		return c1.OriginalIndex < c2.OriginalIndex
 	})
 }
-
