@@ -159,10 +159,14 @@ jobs:
 
             CURRENT_CATALOG_VERSION="$(jq -er '.plugins[0].manifest.version' catalog.json)"
 
-            # Compare with strict SemVer 2.0 tooling from the tagged checkout
+            # Compare with strict SemVer 2.0 tooling from the tagged checkout.
+            # compare(current, target):
+            #   "GREATER" = current catalog version is strictly newer than target release
+            #              => this release is stale, do NOT downgrade the catalog
+            #   "EQUAL"/"LESS" = target is >= current => proceed (idempotently)
             SEMVER_RELATION=$(python3 "$TOOL_SCRIPT" compare-semver "$CURRENT_CATALOG_VERSION" "$VERSION")
 
-            if [ "$SEMVER_RELATION" = "LESS" ]; then
+            if [ "$SEMVER_RELATION" = "GREATER" ]; then
               echo "Warning: main catalog version ($CURRENT_CATALOG_VERSION) is strictly newer than release version ($VERSION). Skipping catalog update."
               PUSH_COMPLETED=true
               break
