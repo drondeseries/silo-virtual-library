@@ -31,3 +31,8 @@ dist/
 .vscode/
 *.swp
 .DS_Store
+
+# Python cache
+scripts/__pycache__/
+__pycache__/
+*.pyc
