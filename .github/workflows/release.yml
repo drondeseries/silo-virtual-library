@@ -20,23 +20,27 @@ jobs:
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: "1.26"
-      - name: Validate release metadata and immutability
+      - name: Validate release metadata and strict SemVer
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           MANIFEST_VERSION="$(jq -er '.version' manifest.json)"
           CATALOG_VERSION="$(jq -er '.plugins[0].manifest.version' catalog.json)"
+
+          # Strict SemVer validation
+          python3 -c '
+          import sys, re
+          v = sys.argv[1]
+          if not re.match(r"^(\d+)\.(\d+)\.(\d+)(?:-([0-9a-zA-Z.-]+))?$", v):
+              print(f"Invalid SemVer version string: {v}", file=sys.stderr)
+              sys.exit(1)
+          ' "$VERSION"
+
           test "$VERSION" = "$MANIFEST_VERSION"
           test "$VERSION" = "$CATALOG_VERSION"
           jq -e '.capabilities[] | select(.type == "virtual_stream_provider.v1") | .virtual_stream_provider.supported_media_types | length > 0' manifest.json >/dev/null
           jq -e '.plugins[0].manifest.capabilities[] | select(.type == "virtual_stream_provider.v1") | .virtual_stream_provider.supported_media_types | length > 0' catalog.json >/dev/null
-
-          # Guard: Fail immediately if GitHub release for this tag already exists
-          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "::error::Release ${GITHUB_REF_NAME} already exists in repository ${GITHUB_REPOSITORY}. Refusing to overwrite existing immutable release."
-            exit 1
-          fi
       - name: Run tests
         run: go test ./...
 
@@ -85,25 +89,40 @@ jobs:
           find artifacts -type f -name 'plugin-*' -exec cp {} release/ \;
           cd release
           sha256sum plugin-* > checksums.txt
-      - name: Publish GitHub release
+      - name: Publish GitHub release (idempotent / immutable)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Verify release does not exist before publishing
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "::error::Release ${GITHUB_REF_NAME} already exists. Aborting."
-            exit 1
+            echo "Release $GITHUB_REF_NAME already exists on GitHub. Verifying asset hash integrity for idempotent resume..."
+            CHECK_DIR="$(mktemp -d)"
+            gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --dir "$CHECK_DIR"
+            for f in plugin-linux-amd64 plugin-linux-arm64 plugin-darwin-arm64 checksums.txt; do
+              if [ ! -f "$CHECK_DIR/$f" ]; then
+                echo "::error::Existing release $GITHUB_REF_NAME is missing expected asset $f. Refusing to modify."
+                exit 1
+              fi
+              BUILT_HASH="$(sha256sum "release/$f" | awk '{print $1}')"
+              EXISTING_HASH="$(sha256sum "$CHECK_DIR/$f" | awk '{print $1}')"
+              if [ "$BUILT_HASH" != "$EXISTING_HASH" ]; then
+                echo "::error::Existing release $GITHUB_REF_NAME asset $f hash ($EXISTING_HASH) does not match built hash ($BUILT_HASH). Refusing to clobber."
+                exit 1
+              fi
+            done
+            rm -rf "$CHECK_DIR"
+            echo "All existing release asset hashes match built artifacts perfectly. Proceeding to ensure catalog.json is current."
+          else
+            echo "Creating new immutable release $GITHUB_REF_NAME..."
+            gh release create "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$GITHUB_REF_NAME" \
+              --generate-notes \
+              release/plugin-linux-amd64 \
+              release/plugin-linux-arm64 \
+              release/plugin-darwin-arm64 \
+              release/checksums.txt
           fi
-
-          gh release create "$GITHUB_REF_NAME" \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "$GITHUB_REF_NAME" \
-            --generate-notes \
-            release/plugin-linux-amd64 \
-            release/plugin-linux-arm64 \
-            release/plugin-darwin-arm64 \
-            release/checksums.txt
-      - name: Update catalog.json on main
+      - name: Update catalog.json on main (strict SemVer with retry exhaustion guard)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -121,14 +140,46 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
+          PUSH_COMPLETED=false
+
           for attempt in 1 2 3 4 5; do
             git fetch origin main
             git reset --hard origin/main
 
             CURRENT_CATALOG_VERSION="$(jq -er '.plugins[0].manifest.version' catalog.json)"
-            HIGHEST_VERSION="$(printf '%s\n%s\n' "$CURRENT_CATALOG_VERSION" "$VERSION" | sort -V | tail -n1)"
-            if [ "$HIGHEST_VERSION" != "$VERSION" ]; then
+
+            SEMVER_RELATION=$(python3 -c '
+          import sys, re
+
+          def parse_semver(v):
+              m = re.match(r"^(\d+)\.(\d+)\.(\d+)(?:-([0-9a-zA-Z.-]+))?$", v)
+              if not m:
+                  return None
+              major, minor, patch = int(m.group(1)), int(m.group(2)), int(m.group(3))
+              prerelease = m.group(4)
+              pr_tuple = (1, "") if prerelease is None else (0, prerelease)
+              return (major, minor, patch, pr_tuple)
+
+          current = parse_semver(sys.argv[1])
+          target = parse_semver(sys.argv[2])
+          if not current or not target:
+              print("INVALID")
+          elif target > current:
+              print("GREATER")
+          elif target == current:
+              print("EQUAL")
+          else:
+              print("LESS")
+          ' "$CURRENT_CATALOG_VERSION" "$VERSION")
+
+            if [ "$SEMVER_RELATION" = "INVALID" ]; then
+              echo "::error::Invalid SemVer encountered (current=$CURRENT_CATALOG_VERSION, target=$VERSION)"
+              exit 1
+            fi
+
+            if [ "$SEMVER_RELATION" = "LESS" ]; then
               echo "Warning: main catalog version ($CURRENT_CATALOG_VERSION) is strictly newer than release version ($VERSION). Skipping catalog update."
+              PUSH_COMPLETED=true
               break
             fi
 
@@ -160,15 +211,23 @@ jobs:
             git add catalog.json
             if git diff --staged --quiet; then
               echo "catalog.json is already up-to-date with release ${TAG}."
+              PUSH_COMPLETED=true
               break
             fi
 
             git commit -m "chore(catalog): auto-update catalog.json for release ${TAG}"
             if git push origin main; then
               echo "Successfully updated catalog.json on main for ${TAG}."
+              PUSH_COMPLETED=true
               break
             fi
             echo "Push race detected on main, retrying (attempt $attempt)..."
             sleep 2
           done
+
           rm -rf "$MAIN_WORKTREE"
+
+          if [ "$PUSH_COMPLETED" != "true" ]; then
+            echo "::error::Failed to update catalog.json on main after 5 attempts due to push conflicts."
+            exit 1
+          fi
