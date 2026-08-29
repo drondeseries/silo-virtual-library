@@ -1013,6 +1013,16 @@ func TestCandidateExpiryAndHeadersExtraction(t *testing.T) {
 		t.Fatalf("parseURLExpiration for AWS SigV4 failed: got %v", amzExp)
 	}
 
+	// Malformed or missing X-Amz-Date must not fabricate an expiry
+	amzMissingDateURL := "https://s3.example.com/bucket/video.mp4?X-Amz-Expires=3600"
+	if exp := parseURLExpiration(amzMissingDateURL); !exp.IsZero() {
+		t.Fatalf("expected zero expiry for missing X-Amz-Date, got %v", exp)
+	}
+	amzMalformedDateURL := "https://s3.example.com/bucket/video.mp4?X-Amz-Date=invalid-date&X-Amz-Expires=3600"
+	if exp := parseURLExpiration(amzMalformedDateURL); !exp.IsZero() {
+		t.Fatalf("expected zero expiry for malformed X-Amz-Date, got %v", exp)
+	}
+
 	headers := extractProxyRequestHeaders(map[string]any{
 		"request": map[string]any{
 			"Referer":    "https://stremio.example/",

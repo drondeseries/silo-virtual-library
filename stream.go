@@ -218,17 +218,19 @@ func parseURLExpiration(rawURL string) time.Time {
 			if amzDate == "" {
 				amzDate = strings.TrimSpace(q.Get("x-amz-date"))
 			}
-			baseTime := time.Now().UTC()
 			if amzDate != "" {
+				var baseTime time.Time
 				if t, err := time.Parse("20060102T150405Z", amzDate); err == nil {
 					baseTime = t.UTC()
 				} else if t, err := time.Parse(time.RFC3339, amzDate); err == nil {
 					baseTime = t.UTC()
 				}
-			}
-			t := baseTime.Add(time.Duration(durSec) * time.Second)
-			if t.After(time.Now()) {
-				return t.Add(-15 * time.Second)
+				if !baseTime.IsZero() {
+					t := baseTime.Add(time.Duration(durSec) * time.Second)
+					if t.After(time.Now()) {
+						return t.Add(-15 * time.Second)
+					}
+				}
 			}
 		}
 	}
