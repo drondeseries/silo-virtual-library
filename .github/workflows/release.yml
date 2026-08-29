@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 concurrency:
   group: release-pipeline
@@ -102,13 +104,20 @@ jobs:
           cd release
           sha256sum plugin-* > checksums.txt
           cd ..
-          python3 scripts/release_tool.py generate-provenance release "$GITHUB_REF_NAME" "$GITHUB_SHA" "${{ env.GO_VERSION }}"
+          COMMIT_TIME="$(git show -s --format=%cI "$GITHUB_SHA")"
+          python3 scripts/release_tool.py generate-provenance release "$GITHUB_REF_NAME" "$GITHUB_SHA" "${{ env.GO_VERSION }}" "$COMMIT_TIME"
       - name: Show provenance
         run: |
           cat release/provenance.json
+      - name: Attest release artifacts
+        uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
+        with:
+          subject-path: release/plugin-*
       - name: Publish GitHub release (idempotent / immutable)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TOOL_SCRIPT: ${{ github.workspace }}/scripts/release_tool.py
+          RELEASE_DIR: ${{ github.workspace }}/release
         run: |
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Release $GITHUB_REF_NAME already exists on GitHub. Verifying exact asset set and hashes for idempotent resume..."

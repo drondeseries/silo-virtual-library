@@ -94,7 +94,9 @@ class TestFileUtils(unittest.TestCase):
             with open(p1, "wb") as f:
                 f.write(plugin_bytes)
 
-            prov = rt.generate_provenance(tmp, "v0.4.100", "abc123", "go1.26.0")
+            prov = rt.generate_provenance(tmp, "v0.4.100", "abc123", "go1.26.0", "2026-08-29T13:00:00+00:00")
+            prov_again = rt.generate_provenance(tmp, "v0.4.100", "abc123", "go1.26.0", "2026-08-29T13:00:00+00:00")
+            self.assertEqual(prov, prov_again)
             self.assertEqual(prov["version"], "0.4.100")
             self.assertEqual(prov["tag"], "v0.4.100")
             self.assertEqual(prov["commit_sha"], "abc123")
@@ -123,6 +125,14 @@ class TestFileUtils(unittest.TestCase):
         self._fill_assets(existing, built)
         ok, msg = rt.verify_existing_assets(existing, built)
         self.assertTrue(ok, msg)
+
+    def test_verify_asset_set_missing_asset_rejected(self):
+        existing, built = self._make_dirs()
+        self._fill_assets(existing, built)
+        os.remove(os.path.join(existing, "provenance.json"))
+        ok, msg = rt.verify_existing_assets(existing, built)
+        self.assertFalse(ok)
+        self.assertIn("Asset set mismatch", msg)
 
     def test_verify_asset_set_extra_asset_rejected(self):
         existing, built = self._make_dirs()

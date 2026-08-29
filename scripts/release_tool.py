@@ -10,7 +10,6 @@ import re
 import json
 import hashlib
 import os
-from datetime import datetime, timezone
 
 SEMVER_REGEX = re.compile(
     r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
@@ -130,13 +129,21 @@ def sha256_file(path: str) -> str:
     return h.hexdigest()
 
 
-def generate_provenance(release_dir: str, tag: str, commit_sha: str, go_version: str) -> dict:
+def generate_provenance(
+    release_dir: str,
+    tag: str,
+    commit_sha: str,
+    go_version: str,
+    built_at: str | None = None,
+) -> dict:
+    if built_at is None:
+        built_at = ""
     provenance = {
         "version": tag.lstrip("v"),
         "tag": tag,
         "commit_sha": commit_sha,
         "toolchain": go_version,
-        "built_at": datetime.now(timezone.utc).isoformat(),
+        "built_at": built_at,
         "artifacts": {},
     }
     for fname in ["plugin-linux-amd64", "plugin-linux-arm64", "plugin-darwin-arm64"]:
@@ -249,11 +256,12 @@ def main():
             sys.exit(1)
 
     elif cmd == "generate-provenance":
-        if len(sys.argv) != 6:
-            print("Usage: release_tool.py generate-provenance <release_dir> <tag> <commit_sha> <go_version>", file=sys.stderr)
+        if len(sys.argv) not in (6, 7):
+            print("Usage: release_tool.py generate-provenance <release_dir> <tag> <commit_sha> <go_version> [built_at]", file=sys.stderr)
             sys.exit(1)
         release_dir, tag, commit_sha, go_version = sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
-        prov = generate_provenance(release_dir, tag, commit_sha, go_version)
+        built_at = sys.argv[6] if len(sys.argv) == 7 else ""
+        prov = generate_provenance(release_dir, tag, commit_sha, go_version, built_at)
         prov_path = os.path.join(release_dir, "provenance.json")
         with open(prov_path, "w", encoding="utf-8") as f:
             json.dump(prov, f, indent=2)
