@@ -8,8 +8,40 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-pipeline
+  cancel-in-progress: false
+
 jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.26"
+      - name: Validate release metadata and immutability
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          MANIFEST_VERSION="$(jq -er '.version' manifest.json)"
+          CATALOG_VERSION="$(jq -er '.plugins[0].manifest.version' catalog.json)"
+          test "$VERSION" = "$MANIFEST_VERSION"
+          test "$VERSION" = "$CATALOG_VERSION"
+          jq -e '.capabilities[] | select(.type == "virtual_stream_provider.v1") | .virtual_stream_provider.supported_media_types | length > 0' manifest.json >/dev/null
+          jq -e '.plugins[0].manifest.capabilities[] | select(.type == "virtual_stream_provider.v1") | .virtual_stream_provider.supported_media_types | length > 0' catalog.json >/dev/null
+
+          # Guard: Fail immediately if GitHub release for this tag already exists
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Release ${GITHUB_REF_NAME} already exists in repository ${GITHUB_REPOSITORY}. Refusing to overwrite existing immutable release."
+            exit 1
+          fi
+      - name: Run tests
+        run: go test ./...
+
   build:
+    needs: preflight
     strategy:
       matrix:
         include:
@@ -25,18 +57,7 @@ jobs:
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: "1.26"
-      - name: Validate release metadata
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          MANIFEST_VERSION="$(jq -er '.version' manifest.json)"
-          CATALOG_VERSION="$(jq -er '.plugins[0].manifest.version' catalog.json)"
-          test "$VERSION" = "$MANIFEST_VERSION"
-          test "$VERSION" = "$CATALOG_VERSION"
-          jq -e '.capabilities[] | select(.type == "virtual_stream_provider.v1") | .virtual_stream_provider.supported_media_types | length > 0' manifest.json >/dev/null
-          jq -e '.plugins[0].manifest.capabilities[] | select(.type == "virtual_stream_provider.v1") | .virtual_stream_provider.supported_media_types | length > 0' catalog.json >/dev/null
-      - name: Test
-        run: go test ./...
-      - name: Build plugin
+      - name: Build plugin binary
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
@@ -51,12 +72,10 @@ jobs:
           path: dist/plugin-${{ matrix.goos }}-${{ matrix.goarch }}
 
   release:
-    needs: build
+    needs: [preflight, build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          ref: main
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: artifacts
@@ -67,15 +86,26 @@ jobs:
           cd release
           sha256sum plugin-* > checksums.txt
       - name: Publish GitHub release
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
-        with:
-          generate_release_notes: true
-          files: |
-            release/plugin-linux-amd64
-            release/plugin-linux-arm64
-            release/plugin-darwin-arm64
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Verify release does not exist before publishing
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Release ${GITHUB_REF_NAME} already exists. Aborting."
+            exit 1
+          fi
+
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            release/plugin-linux-amd64 \
+            release/plugin-linux-arm64 \
+            release/plugin-darwin-arm64 \
             release/checksums.txt
       - name: Update catalog.json on main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           TAG="${GITHUB_REF_NAME}"
@@ -84,33 +114,61 @@ jobs:
           LINUX_ARM64_HASH=$(sha256sum release/plugin-linux-arm64 | awk '{print $1}')
           DARWIN_ARM64_HASH=$(sha256sum release/plugin-darwin-arm64 | awk '{print $1}')
 
-          jq --arg ver "$VERSION" \
-             --arg tag "$TAG" \
-             --arg amd64 "$LINUX_AMD64_HASH" \
-             --arg arm64 "$LINUX_ARM64_HASH" \
-             --arg darwin "$DARWIN_ARM64_HASH" '
-             def control_number:
-               {"ADMIN_FORM_CONTROL_UNSPECIFIED":0,
-                "ADMIN_FORM_CONTROL_TEXT":1,
-                "ADMIN_FORM_CONTROL_TEXTAREA":2,
-                "ADMIN_FORM_CONTROL_PASSWORD":3,
-                "ADMIN_FORM_CONTROL_NUMBER":4,
-                "ADMIN_FORM_CONTROL_SWITCH":5,
-                "ADMIN_FORM_CONTROL_SELECT":6,
-                "ADMIN_FORM_CONTROL_MULTI_SELECT":7}[.];
-             .plugins[0].manifest.version = $ver |
-             (.plugins[0].manifest.global_config_schema[]?.admin_form.fields[]?.control) |=
-               (if type == "string" then control_number else . end) |
-               .plugins[0].checksums_url = ("https://github.com/drondeseries/silo-virtual-library/releases/download/" + $tag + "/checksums.txt") |
-              .plugins[0].binaries["linux/amd64"].url = ("https://github.com/drondeseries/silo-virtual-library/releases/download/" + $tag + "/plugin-linux-amd64") |
-              .plugins[0].binaries["linux/amd64"].checksum = $amd64 |
-              .plugins[0].binaries["linux/arm64"].url = ("https://github.com/drondeseries/silo-virtual-library/releases/download/" + $tag + "/plugin-linux-arm64") |
-              .plugins[0].binaries["linux/arm64"].checksum = $arm64 |
-              .plugins[0].binaries["darwin/arm64"].url = ("https://github.com/drondeseries/silo-virtual-library/releases/download/" + $tag + "/plugin-darwin-arm64") |
-               .plugins[0].binaries["darwin/arm64"].checksum = $darwin' catalog.json > catalog.tmp && mv catalog.tmp catalog.json
+          MAIN_WORKTREE="$(mktemp -d)"
+          git clone --branch main "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$MAIN_WORKTREE"
+          cd "$MAIN_WORKTREE"
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add catalog.json
-          git commit -m "chore(catalog): auto-update catalog.json for release ${TAG}" || exit 0
-          git push origin main
+
+          for attempt in 1 2 3 4 5; do
+            git fetch origin main
+            git reset --hard origin/main
+
+            CURRENT_CATALOG_VERSION="$(jq -er '.plugins[0].manifest.version' catalog.json)"
+            HIGHEST_VERSION="$(printf '%s\n%s\n' "$CURRENT_CATALOG_VERSION" "$VERSION" | sort -V | tail -n1)"
+            if [ "$HIGHEST_VERSION" != "$VERSION" ]; then
+              echo "Warning: main catalog version ($CURRENT_CATALOG_VERSION) is strictly newer than release version ($VERSION). Skipping catalog update."
+              break
+            fi
+
+            jq --arg ver "$VERSION" \
+               --arg tag "$TAG" \
+               --arg amd64 "$LINUX_AMD64_HASH" \
+               --arg arm64 "$LINUX_ARM64_HASH" \
+               --arg darwin "$DARWIN_ARM64_HASH" '
+               def control_number:
+                 {"ADMIN_FORM_CONTROL_UNSPECIFIED":0,
+                  "ADMIN_FORM_CONTROL_TEXT":1,
+                  "ADMIN_FORM_CONTROL_TEXTAREA":2,
+                  "ADMIN_FORM_CONTROL_PASSWORD":3,
+                  "ADMIN_FORM_CONTROL_NUMBER":4,
+                  "ADMIN_FORM_CONTROL_SWITCH":5,
+                  "ADMIN_FORM_CONTROL_SELECT":6,
+                  "ADMIN_FORM_CONTROL_MULTI_SELECT":7}[.];
+               .plugins[0].manifest.version = $ver |
+               (.plugins[0].manifest.global_config_schema[]?.admin_form.fields[]?.control) |=
+                 (if type == "string" then control_number else . end) |
+                 .plugins[0].checksums_url = ("https://github.com/drondeseries/silo-virtual-library/releases/download/" + $tag + "/checksums.txt") |
+                .plugins[0].binaries["linux/amd64"].url = ("https://github.com/drondeseries/silo-virtual-library/releases/download/" + $tag + "/plugin-linux-amd64") |
+                .plugins[0].binaries["linux/amd64"].checksum = $amd64 |
+                .plugins[0].binaries["linux/arm64"].url = ("https://github.com/drondeseries/silo-virtual-library/releases/download/" + $tag + "/plugin-linux-arm64") |
+                .plugins[0].binaries["linux/arm64"].checksum = $arm64 |
+                .plugins[0].binaries["darwin/arm64"].url = ("https://github.com/drondeseries/silo-virtual-library/releases/download/" + $tag + "/plugin-darwin-arm64") |
+                 .plugins[0].binaries["darwin/arm64"].checksum = $darwin' catalog.json > catalog.tmp && mv catalog.tmp catalog.json
+
+            git add catalog.json
+            if git diff --staged --quiet; then
+              echo "catalog.json is already up-to-date with release ${TAG}."
+              break
+            fi
+
+            git commit -m "chore(catalog): auto-update catalog.json for release ${TAG}"
+            if git push origin main; then
+              echo "Successfully updated catalog.json on main for ${TAG}."
+              break
+            fi
+            echo "Push race detected on main, retrying (attempt $attempt)..."
+            sleep 2
+          done
+          rm -rf "$MAIN_WORKTREE"
