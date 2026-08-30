@@ -371,20 +371,31 @@ func customFormatScore(candidate StreamCandidate, formats []CustomFormat) (int, 
 	return score, false
 }
 
+type scoredCandidate struct {
+	candidate StreamCandidate
+	rejected  bool
+}
+
 func sortCandidatesForProfile(candidates []StreamCandidate, p QualityProfile, formats []CustomFormat) {
-	for idx := range candidates {
-		score, _ := customFormatScore(candidates[idx], formats)
-		candidates[idx].QualityScore = score
+	if len(candidates) <= 1 {
+		return
 	}
-	sort.SliceStable(candidates, func(i, j int) bool {
-		c1, c2 := candidates[i], candidates[j]
-		s1, reject1 := customFormatScore(c1, formats)
-		s2, reject2 := customFormatScore(c2, formats)
-		if reject1 != reject2 {
-			return !reject1
+	scored := make([]scoredCandidate, len(candidates))
+	for idx := range candidates {
+		score, reject := customFormatScore(candidates[idx], formats)
+		candidates[idx].QualityScore = score
+		scored[idx] = scoredCandidate{
+			candidate: candidates[idx],
+			rejected:  reject,
 		}
-		if s1 != s2 {
-			return s1 > s2
+	}
+	sort.SliceStable(scored, func(i, j int) bool {
+		c1, c2 := scored[i].candidate, scored[j].candidate
+		if scored[i].rejected != scored[j].rejected {
+			return !scored[i].rejected
+		}
+		if c1.QualityScore != c2.QualityScore {
+			return c1.QualityScore > c2.QualityScore
 		}
 		if r1, r2 := resolutionScore(c1.Resolution), resolutionScore(c2.Resolution); r1 != r2 {
 			return r1 > r2
@@ -394,4 +405,7 @@ func sortCandidatesForProfile(candidates []StreamCandidate, p QualityProfile, fo
 		}
 		return c1.OriginalIndex < c2.OriginalIndex
 	})
+	for idx := range scored {
+		candidates[idx] = scored[idx].candidate
+	}
 }

@@ -495,12 +495,17 @@ func (c *manifestStreamResolver) startRefreshLocked(cacheKey string, generation 
 	if c.refreshes == nil {
 		c.refreshes = make(map[string]chan struct{})
 	}
+	if c.syncFlights == nil {
+		c.syncFlights = make(map[string]chan struct{})
+	}
 	done := make(chan struct{})
 	c.refreshes[cacheKey] = done
+	c.syncFlights[cacheKey] = done
 	go func() {
 		defer func() {
 			c.cacheMu.Lock()
 			delete(c.refreshes, cacheKey)
+			delete(c.syncFlights, cacheKey)
 			c.cacheMu.Unlock()
 			close(done)
 		}()

@@ -35,12 +35,6 @@ type ShowMetadata struct {
 	Episodes    map[string]EpisodeInfo `json:"episodes"`
 }
 
-// MovieMetadata contains release information for a movie.
-type MovieMetadata struct {
-	IMDBID      string     `json:"imdb_id"`
-	ReleaseDate *time.Time `json:"release_date,omitempty"`
-}
-
 // MetadataClient fetches show and episode metadata from external providers.
 // A global spacing limiter keeps request rates inside TVmaze's free-tier
 // guidance even when the scheduler worker pool, playback lookups, and

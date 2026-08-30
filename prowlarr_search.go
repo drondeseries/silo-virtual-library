@@ -422,14 +422,6 @@ func normalizeReleaseTitle(raw string) (title string, year int) {
 	return strings.TrimSpace(cleaned), year
 }
 
-func normalizedReleaseTitles(releases []prowlarrRelease) map[string]string {
-	result := make(map[string]string, len(releases))
-	for _, release := range releases {
-		result[releaseKey(release)] = normalizedReleaseTitle(release.Title)
-	}
-	return result
-}
-
 func normalizedReleaseTitle(raw string) string {
 	title, _ := normalizeReleaseTitle(raw)
 	return title
@@ -468,7 +460,7 @@ func (c *prowlarrSearchClient) MatchEpisodeWithQuality(item monitoredMedia, epis
 	if wantTitle == "" {
 		return false
 	}
-	wantIMDb, _ := strconv.ParseInt(item.IMDbID, 10, 64)
+	wantIMDb, _ := strconv.ParseInt(strings.TrimPrefix(strings.TrimSpace(item.IMDbID), "tt"), 10, 64)
 	wantTMDB, _ := strconv.ParseInt(item.TMDBID, 10, 64)
 	wantTVDB, _ := strconv.ParseInt(item.TVDBID, 10, 64)
 	for i := range releases {
@@ -515,7 +507,7 @@ func matchProwlarrReleasesWithQuality(releases []prowlarrRelease, item monitored
 	if wantTitle == "" {
 		return false
 	}
-	wantIMDb, _ := strconv.ParseInt(item.IMDbID, 10, 64)
+	wantIMDb, _ := strconv.ParseInt(strings.TrimPrefix(strings.TrimSpace(item.IMDbID), "tt"), 10, 64)
 	wantTMDB, _ := strconv.ParseInt(item.TMDBID, 10, 64)
 	wantTVDB, _ := strconv.ParseInt(item.TVDBID, 10, 64)
 

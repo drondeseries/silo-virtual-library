@@ -162,9 +162,8 @@ func (s *ReleaseStore) IsReleased(itemType string, imdbID string, season int, ep
 
 	// Series / Episode lookup
 	s.mu.RLock()
+	defer s.mu.RUnlock()
 	show, ok := s.shows[key]
-	s.mu.RUnlock()
-
 	if !ok || show == nil {
 		return true, nil
 	}

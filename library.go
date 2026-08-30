@@ -59,10 +59,11 @@ func validateLibraryIDs(host *runtimehost.Client, movieID, seriesID int) error {
 		if lib == nil {
 			continue
 		}
-		if lib.GetId() == strconv.Itoa(movieID) && (lib.GetMediaType() == "movie" || lib.GetMediaType() == "mixed") {
+		mt := strings.ToLower(strings.TrimSpace(lib.GetMediaType()))
+		if lib.GetId() == strconv.Itoa(movieID) && (mt == "movie" || mt == "movies" || mt == "mixed") {
 			moviesOK = true
 		}
-		if lib.GetId() == strconv.Itoa(seriesID) && (lib.GetMediaType() == "tv" || lib.GetMediaType() == "mixed") {
+		if lib.GetId() == strconv.Itoa(seriesID) && (mt == "tv" || mt == "show" || mt == "shows" || mt == "series" || mt == "mixed") {
 			seriesOK = true
 		}
 	}
