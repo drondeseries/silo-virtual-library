@@ -131,10 +131,10 @@
             "key": "manifest_url",
             "label": "Manifest URL",
             "description": "Full streaming provider manifest URL (e.g. AIOStreams, StreamNZB, or any Stremio-compatible addon). Must include the full tokenized path ending in /manifest.json.",
-            "control": "ADMIN_FORM_CONTROL_PASSWORD",
+            "control": "ADMIN_FORM_CONTROL_TEXT",
             "placeholder": "https://…/manifest.json",
             "required": true,
-            "secret": true
+            "secret": false
           },
           {
             "key": "tmdb_api_key",
