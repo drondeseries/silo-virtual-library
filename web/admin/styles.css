@@ -16,6 +16,20 @@
   --focus:0 0 0 2px var(--bg1),0 0 0 4px rgba(231,184,107,.55);
 }
 
+[data-theme="light"], :root.light {
+  --bg0:#f8fafc; --bg1:#ffffff; --bg2:#f1f5f9; --bg3:#e2e8f0;
+  --line:#e2e8f0; --line-strong:#cbd5e1;
+  --text:#0f172a; --text-dim:#475569; --text-faint:#94a3b8;
+  --gold:#d97706; --gold-strong:#b45309; --gold-dim:rgba(217,119,6,.12);
+  --teal:#0d9488; --teal-dim:rgba(13,148,136,.12);
+  --warn:#ea580c; --warn-dim:rgba(234,88,12,.12);
+  --danger:#dc2626; --ok:#16a34a; --ok-dim:rgba(22,163,74,.12);
+  --sh-1:0 1px 2px rgba(0,0,0,.05);
+  --sh-2:0 4px 12px rgba(0,0,0,.08);
+  --sh-3:0 12px 24px rgba(0,0,0,.12);
+  --focus:0 0 0 2px var(--bg1),0 0 0 4px rgba(217,119,6,.55);
+}
+
 * { box-sizing:border-box }
 html,body { margin:0 }
 body {

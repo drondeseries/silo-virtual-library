@@ -161,6 +161,12 @@
             "label": "Quality Profile Preset",
             "description": "Choose a starting profile set. Custom keeps the JSON editor below available for advanced matching.",
             "control": "ADMIN_FORM_CONTROL_SELECT",
+            "show_when": [
+              {
+                "field": "enable_quality_profiles",
+                "equals": ["true"]
+              }
+            ],
             "options": [
               {
                 "value": "custom",
@@ -201,6 +207,12 @@
             "label": "Audio / Language Preset",
             "description": "Sonarr/Radarr-style release-title presets for preferring English and rejecting unwanted dubs.",
             "control": "ADMIN_FORM_CONTROL_SELECT",
+            "show_when": [
+              {
+                "field": "enable_quality_profiles",
+                "equals": ["true"]
+              }
+            ],
             "options": [
               {
                 "value": "custom",
@@ -266,6 +278,16 @@
             "description": "One profile per label. Fields: label (required), resolution (2160p/1080p/720p/480p), hdr, exclude_hdr (use * to require SDR), codec_video, codec_audio, include_regex, exclude_regex, preferred_order.",
             "control": "ADMIN_FORM_CONTROL_TEXTAREA",
             "rows": 6,
+            "show_when": [
+              {
+                "field": "enable_quality_profiles",
+                "equals": ["true"]
+              },
+              {
+                "field": "quality_preset",
+                "equals": ["custom"]
+              }
+            ],
             "placeholder": "[\n  {\"label\": \"4K DV\",  \"resolution\": \"2160p\", \"hdr\": \"dv\"},\n  {\"label\": \"1080p\",  \"resolution\": \"1080p\"},\n  {\"label\": \"No Cam\", \"exclude_regex\": \"(?i)cam|ts|hdcam\"}\n]"
           },
           {
@@ -274,13 +296,29 @@
             "description": "Named regex rules scored like Sonarr/Radarr custom formats. Set reject=true to exclude a release; positive scores prefer matches and negative scores penalize them.",
             "control": "ADMIN_FORM_CONTROL_TEXTAREA",
             "rows": 6,
+            "show_when": [
+              {
+                "field": "enable_quality_profiles",
+                "equals": ["true"]
+              },
+              {
+                "field": "custom_format_preset",
+                "equals": ["custom"]
+              }
+            ],
             "placeholder": "[\n  {\"name\": \"English\", \"regex\": \"(?i)\\\\b(?:eng|english)\\\\b\", \"score\": 100},\n  {\"name\": \"German\", \"regex\": \"(?i)\\\\b(?:deu|ger|german|deutsch)\\\\b\", \"reject\": true}\n]"
           },
           {
             "key": "fallback_to_any_stream",
             "label": "Fallback to Any Stream",
             "description": "Return 1 stream if no profiles match.",
-            "control": "ADMIN_FORM_CONTROL_SWITCH"
+            "control": "ADMIN_FORM_CONTROL_SWITCH",
+            "show_when": [
+              {
+                "field": "enable_quality_profiles",
+                "equals": ["true"]
+              }
+            ]
           },
           {
             "key": "indexer_rss_url",
@@ -341,26 +379,44 @@
         ],
         "sections": [
           {
-            "key": "advanced",
-            "title": "Advanced Settings",
-            "description": "Quality profiles, custom format presets, Prowlarr indexer, and internal queue paths.",
+            "key": "quality_rules",
+            "title": "Quality & Language Rules",
+            "description": "Stream quality presets, audio preferences, and custom regex rules.",
+            "collapsible": true,
+            "collapsed_default": false,
+            "field_keys": [
+              "enable_quality_profiles",
+              "quality_preset",
+              "custom_format_preset",
+              "fallback_to_any_stream",
+              "quality_profiles",
+              "custom_formats"
+            ]
+          },
+          {
+            "key": "prowlarr",
+            "title": "Release Monitoring (Prowlarr)",
+            "description": "Connect Prowlarr to automatically search for home digital and physical releases.",
             "collapsible": true,
             "collapsed_default": true,
             "field_keys": [
-              "single_stream_with_failover",
-              "enable_quality_profiles",
-              "quality_preset",
-              "quality_profiles",
-              "custom_format_preset",
-              "custom_formats",
-              "fallback_to_any_stream",
               "indexer_rss_url",
               "indexer_api_key",
-              "indexer_rss_check_minutes",
-              "prowlarr_index_file",
-              "monitor_file",
+              "indexer_rss_check_minutes"
+            ]
+          },
+          {
+            "key": "advanced",
+            "title": "Tuning & Networking",
+            "description": "Cache TTLs, schedule refresh frequencies, and network settings.",
+            "collapsible": true,
+            "collapsed_default": true,
+            "field_keys": [
+              "allow_insecure_http",
               "cache_ttl_minutes",
-              "allow_insecure_http"
+              "schedule_refresh_minutes",
+              "monitor_file",
+              "prowlarr_index_file"
             ]
           }
         ],

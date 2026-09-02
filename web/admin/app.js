@@ -461,6 +461,22 @@ $('#q-sort').addEventListener('change', (e) => { state.sort = e.target.value; re
 $('#btn-refresh-schedules').addEventListener('click', (e) => refreshSchedules(e.currentTarget));
 setInterval(stampFreshness, 10000);
 
+/* ---------------- theme & navigation ---------------- */
+const themeParam = new URLSearchParams(location.search).get('theme');
+if (themeParam) {
+  document.documentElement.dataset.theme = themeParam;
+} else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+  document.documentElement.dataset.theme = 'light';
+}
+
+const backBtn = $('#btn-back');
+if (backBtn && window.history.length > 1) {
+  backBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    window.history.back();
+  });
+}
+
 /* ---------------- boot ---------------- */
 const initial = (location.hash || '#queue').replace('#', '');
 selectView(['queue', 'schedule', 'calendar'].includes(initial) ? initial : 'queue');
