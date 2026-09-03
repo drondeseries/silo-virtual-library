@@ -23,6 +23,7 @@ go.work.sum
 bin/
 dist/
 /silo-virtual-library
+/plugin
 /.silo-virtual-library-monitored.json
 
 # Environment and editor files
