@@ -79,3 +79,45 @@ func TestResolveVirtualStreamSingleStreamWithFailover(t *testing.T) {
 		t.Fatalf("candidate 2 visible = %v, want false", v2)
 	}
 }
+
+func TestResolveVirtualStreamSingleStreamWithFailoverResultsAll(t *testing.T) {
+	client := &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		body, _ := json.Marshal(map[string]any{"streams": []map[string]string{
+			{"title": "2160p Stream 1", "url": "https://provider.example/4k1.mkv"},
+			{"title": "2160p Stream 2", "url": "https://provider.example/4k2.mkv"},
+			{"title": "1080p Stream 1", "url": "https://provider.example/1080.mkv"},
+		}})
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(body)), Header: make(http.Header)}, nil
+	})}
+	resolver := &manifestStreamResolver{client: client}
+	resolver.Configure(resolverConfig{
+		ManifestURL: "https://provider.example/manifest.json",
+		Quality:     QualityConfig{SingleStreamWithFailover: true},
+	})
+	provider := &virtualStreamProvider{resolver: resolver}
+	metadata, err := structpb.NewStruct(map[string]any{
+		"virtual_uri": "virtual://movie/tt1234567?results=all",
+	})
+	if err != nil {
+		t.Fatalf("NewStruct: %v", err)
+	}
+	resp, err := provider.ResolveVirtualStream(context.Background(), &pb.ResolveVirtualStreamRequest{
+		MediaType:   "movie",
+		ExternalIds: map[string]string{"imdb": "tt1234567"},
+		Metadata:    metadata,
+	})
+	if err != nil {
+		t.Fatalf("ResolveVirtualStream() error = %v", err)
+	}
+	if resp.GetResult() == nil || len(resp.GetResult().GetCandidates()) != 3 {
+		t.Fatalf("candidates count = %d, want 3 candidates", len(resp.GetResult().GetCandidates()))
+	}
+	candidates := resp.GetResult().GetCandidates()
+	for i, cand := range candidates {
+		v, ok := cand.GetMetadata().GetFields()["visible"].GetKind().(*structpb.Value_BoolValue)
+		if !ok || !v.BoolValue {
+			t.Fatalf("candidate %d visible = %v, want true when results=all", i, v)
+		}
+	}
+}
+

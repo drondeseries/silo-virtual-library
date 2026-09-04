@@ -29,6 +29,8 @@ type prowlarrReleaseResult struct {
 	TMDBID      int64  `json:"tmdb_id,omitempty"`
 	TVDBID      int64  `json:"tvdb_id,omitempty"`
 	PublishDate string `json:"publish_date,omitempty"`
+	Score       int    `json:"score"`
+	Rejected    bool   `json:"rejected,omitempty"`
 }
 
 func newAdminRoutes(server *runtimeServer) *adminRoutes { return &adminRoutes{server: server} }
@@ -89,6 +91,7 @@ func (a *adminRoutes) searchQueueItem(ctx context.Context, fields map[string]*st
 	if err != nil {
 		return adminJSON(http.StatusBadGateway, map[string]string{"error": redactError(err)})
 	}
+	sortProwlarrReleases(releases, quality.CustomFormats)
 	matched := matchProwlarrReleasesWithQuality(releases, item, quality)
 	if matched {
 		item.Ready = true
@@ -103,7 +106,17 @@ func (a *adminRoutes) searchQueueItem(ctx context.Context, fields map[string]*st
 	}
 	results := make([]prowlarrReleaseResult, 0, len(releases))
 	for _, release := range releases {
-		results = append(results, prowlarrReleaseResult{Title: release.Title, Indexer: release.Indexer, Size: release.Size, IMDbID: release.IMDbID, TMDBID: release.TMDBID, TVDBID: release.TVDBID, PublishDate: release.PublishDate})
+		var score int
+		var rejected bool
+		if release.parsedCandidate != nil && len(quality.CustomFormats) > 0 {
+			score, rejected = customFormatScore(*release.parsedCandidate, quality.CustomFormats)
+		}
+		results = append(results, prowlarrReleaseResult{
+			Title: release.Title, Indexer: release.Indexer, Size: release.Size,
+			IMDbID: release.IMDbID, TMDBID: release.TMDBID, TVDBID: release.TVDBID,
+			PublishDate: release.PublishDate,
+			Score: score, Rejected: rejected,
+		})
 	}
 	return adminJSON(http.StatusOK, map[string]any{"matched": matched, "registered": matched, "title": item.Title, "count": len(results), "releases": results})
 }

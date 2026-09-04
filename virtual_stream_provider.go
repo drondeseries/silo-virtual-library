@@ -123,10 +123,25 @@ func (s *virtualStreamProvider) ResolveVirtualStream(ctx context.Context, req *p
 		return nil, fmt.Errorf("build stream result metadata: %w", metadataErr)
 	}
 	result := &pb.VirtualStreamResult{ResultId: path, ProviderId: virtualStreamProviderID, Metadata: resultMetadata, Availability: &pb.VirtualStreamAvailability{State: pb.VirtualStreamAvailabilityState_VIRTUAL_STREAM_AVAILABILITY_STATE_AVAILABLE}}
+	resultsAll := false
+	if parsedPath, err := url.Parse(path); err == nil {
+		resultsAll = strings.EqualFold(parsedPath.Query().Get("results"), "all")
+	}
+	if !resultsAll && req.GetMetadata() != nil {
+		if raw, ok := req.GetMetadata().AsMap()["results"]; ok {
+			if s, ok := raw.(string); ok {
+				resultsAll = strings.EqualFold(strings.TrimSpace(s), "all")
+			}
+		}
+	}
 	for rank, candidate := range candidates {
 		candidateMetadata := map[string]any{}
 		if quality.SingleStreamWithFailover {
-			candidateMetadata["visible"] = rank == 0
+			if resultsAll {
+				candidateMetadata["visible"] = true
+			} else {
+				candidateMetadata["visible"] = rank == 0
+			}
 		}
 		if displayName := candidateDisplayName(candidate); displayName != "" {
 			candidateMetadata["display_name"] = displayName

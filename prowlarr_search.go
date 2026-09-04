@@ -465,8 +465,18 @@ func (c *prowlarrSearchClient) MatchEpisodeWithQuality(item monitoredMedia, epis
 	wantTVDB, _ := strconv.ParseInt(item.TVDBID, 10, 64)
 	for i := range releases {
 		release := &releases[i]
-		if quality.EnableProfiles && !releaseMatchesQuality(*release, quality.Profiles) {
+		if quality.EnableProfiles && !releaseMatchesQuality(release, quality.Profiles) {
 			continue
+		}
+		if len(quality.CustomFormats) > 0 {
+			if release.parsedCandidate == nil {
+				prepareProwlarrRelease(release)
+			}
+			if release.parsedCandidate != nil {
+				if _, rejected := customFormatScore(*release.parsedCandidate, quality.CustomFormats); rejected {
+					continue
+				}
+			}
 		}
 		if wantIMDb > 0 && release.IMDbID > 0 && wantIMDb != release.IMDbID || wantTMDB > 0 && release.TMDBID > 0 && wantTMDB != release.TMDBID || wantTVDB > 0 && release.TVDBID > 0 && wantTVDB != release.TVDBID {
 			continue
@@ -513,8 +523,18 @@ func matchProwlarrReleasesWithQuality(releases []prowlarrRelease, item monitored
 
 	for i := range releases {
 		r := &releases[i]
-		if quality.EnableProfiles && !releaseMatchesQuality(*r, quality.Profiles) {
+		if quality.EnableProfiles && !releaseMatchesQuality(r, quality.Profiles) {
 			continue
+		}
+		if len(quality.CustomFormats) > 0 {
+			if r.parsedCandidate == nil {
+				prepareProwlarrRelease(r)
+			}
+			if r.parsedCandidate != nil {
+				if _, rejected := customFormatScore(*r.parsedCandidate, quality.CustomFormats); rejected {
+					continue
+				}
+			}
 		}
 		// Fast path: direct ID match.
 		if wantIMDb > 0 && r.IMDbID > 0 && wantIMDb == r.IMDbID {
@@ -553,14 +573,17 @@ func matchProwlarrReleasesWithQuality(releases []prowlarrRelease, item monitored
 	return false
 }
 
-func releaseMatchesQuality(release prowlarrRelease, profiles []QualityProfile) bool {
-	if len(profiles) == 0 {
+func releaseMatchesQuality(release *prowlarrRelease, profiles []QualityProfile) bool {
+	if release == nil || len(profiles) == 0 {
 		return false
 	}
 	candidate := release.parsedCandidate
 	if candidate == nil {
-		prepareProwlarrRelease(&release)
+		prepareProwlarrRelease(release)
 		candidate = release.parsedCandidate
+	}
+	if candidate == nil {
+		return false
 	}
 	return slicesContainsFunc(profiles, func(profile QualityProfile) bool {
 		return matchProfile(*candidate, profile)
@@ -574,6 +597,92 @@ func slicesContainsFunc[T any](values []T, predicate func(T) bool) bool {
 		}
 	}
 	return false
+}
+
+type scoredProwlarrRelease struct {
+	release     prowlarrRelease
+	score       int
+	rejected    bool
+	index       int
+	publishTime time.Time
+	hasTime     bool
+}
+
+func sortProwlarrReleases(releases []prowlarrRelease, formats []CustomFormat) {
+	if len(releases) == 0 {
+		return
+	}
+	if len(releases) == 1 {
+		if releases[0].parsedCandidate == nil {
+			prepareProwlarrRelease(&releases[0])
+		}
+		if releases[0].parsedCandidate != nil {
+			releases[0].parsedCandidate.QualityScore, _ = customFormatScore(*releases[0].parsedCandidate, formats)
+		}
+		return
+	}
+	scored := make([]scoredProwlarrRelease, len(releases))
+	for i := range releases {
+		if releases[i].parsedCandidate == nil {
+			prepareProwlarrRelease(&releases[i])
+		}
+		score, rejected := 0, false
+		if releases[i].parsedCandidate != nil {
+			score, rejected = customFormatScore(*releases[i].parsedCandidate, formats)
+			releases[i].parsedCandidate.QualityScore = score
+		}
+		pubStr := strings.TrimSpace(releases[i].PublishDate)
+		var pubTime time.Time
+		var hasTime bool
+		if t, err := time.Parse(time.RFC3339, pubStr); err == nil {
+			pubTime = t
+			hasTime = true
+		} else if t, err := time.Parse(time.RFC3339Nano, pubStr); err == nil {
+			pubTime = t
+			hasTime = true
+		}
+		scored[i] = scoredProwlarrRelease{
+			release:     releases[i],
+			score:       score,
+			rejected:    rejected,
+			index:       i,
+			publishTime: pubTime,
+			hasTime:     hasTime,
+		}
+	}
+	sort.SliceStable(scored, func(i, j int) bool {
+		s1, s2 := scored[i], scored[j]
+		if s1.rejected != s2.rejected {
+			return !s1.rejected
+		}
+		if s1.score != s2.score {
+			return s1.score > s2.score
+		}
+		c1, c2 := s1.release.parsedCandidate, s2.release.parsedCandidate
+		if c1 != nil && c2 != nil {
+			if r1, r2 := resolutionScore(c1.Resolution), resolutionScore(c2.Resolution); r1 != r2 {
+				return r1 > r2
+			}
+			if src1, src2 := sourceScore(c1.SourceType), sourceScore(c2.SourceType); src1 != src2 {
+				return src1 > src2
+			}
+		} else if (c1 != nil) != (c2 != nil) {
+			return c1 != nil
+		}
+		if s1.hasTime && s2.hasTime {
+			if !s1.publishTime.Equal(s2.publishTime) {
+				return s1.publishTime.After(s2.publishTime)
+			}
+		} else if s1.hasTime != s2.hasTime {
+			return s1.hasTime
+		} else if s1.release.PublishDate != s2.release.PublishDate {
+			return s1.release.PublishDate > s2.release.PublishDate
+		}
+		return s1.index < s2.index
+	})
+	for i := range scored {
+		releases[i] = scored[i].release
+	}
 }
 
 // Validate performs a one-shot search and returns a human-readable status.

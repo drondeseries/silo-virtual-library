@@ -3,12 +3,16 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
 	"testing"
 	"time"
 
 	pb "github.com/Silo-Server/silo-plugin-sdk/pkg/pluginproto/silo/plugin/v1"
 	"github.com/drondeseries/silo-virtual-library/pkg/release"
 	"github.com/hashicorp/go-hclog"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 func TestQueueJSONShowsOnlyMissingMoviesAndEpisodes(t *testing.T) {
@@ -100,5 +104,79 @@ func TestAdminScheduleJSONAndRefresh(t *testing.T) {
 	forbiddenResp, err := admin.Handle(context.Background(), nonAdminReq)
 	if err != nil || forbiddenResp.StatusCode != 403 {
 		t.Fatalf("expected 403 for non-admin, got resp=%v, err=%v", forbiddenResp, err)
+	}
+}
+
+func TestSearchQueueItemSortsReleasesByCustomFormats(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		releases := []prowlarrRelease{
+			{Title: "Inception.2010.1080p.BluRay.German.Dubbed.x264", Indexer: "altHUB"},
+			{Title: "Inception.2010.1080p.BluRay.Preferred.x264", Indexer: "altHUB"},
+			{Title: "Inception.2010.1080p.BluRay.x264", Indexer: "altHUB"},
+		}
+		json.NewEncoder(w).Encode(releases)
+	}))
+	defer srv.Close()
+
+	prowlarr := newProwlarrSearchClient(srv.Client())
+	prowlarr.Configure(srv.URL, "key", 15)
+
+	formats := []CustomFormat{
+		{Name: "Preferred", Regex: `(?i)\bPreferred\b`, Score: 600},
+		{Name: "Penalty", Regex: `(?i)\bGerman\.Dubbed\b`, Score: -650},
+	}
+	tempDir := t.TempDir()
+	monitor := newMediaMonitor(nil, hclog.NewNullLogger())
+	monitor.setRegistrar(registrarFunc(func(context.Context, monitoredMedia) error { return nil }))
+	monitor.prowlarr = prowlarr
+	monitor.config = monitorConfig{
+		File:              filepath.Join(tempDir, "monitor.json"),
+		ProwlarrIndexFile: filepath.Join(tempDir, "prowlarr.json"),
+		Quality: QualityConfig{
+			CustomFormats: formats,
+		},
+	}
+	monitor.items = map[string]monitoredMedia{
+		"movie:inception": {Key: "movie:inception", MediaType: "movie", Title: "Inception", Year: 2010},
+	}
+
+	server := &runtimeServer{monitor: monitor}
+	admin := newAdminRoutes(server)
+
+	req := &pb.HandleHTTPRequest{
+		Path:    "/admin/virtual-library/queue/search",
+		Method:  "POST",
+		Headers: map[string]string{"X-Silo-User-Role": "admin"},
+		Query: &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"key": structpb.NewStringValue("movie:inception"),
+			},
+		},
+	}
+
+	resp, err := admin.Handle(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Handle search error: %v", err)
+	}
+	if resp.StatusCode != 200 {
+		t.Fatalf("status = %d, body = %s", resp.StatusCode, string(resp.Body))
+	}
+
+	var result struct {
+		Matched  bool                    `json:"matched"`
+		Count    int                     `json:"count"`
+		Releases []prowlarrReleaseResult `json:"releases"`
+	}
+	if err := json.Unmarshal(resp.Body, &result); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+	if len(result.Releases) != 3 {
+		t.Fatalf("got %d releases, want 3", len(result.Releases))
+	}
+	if result.Releases[0].Title != "Inception.2010.1080p.BluRay.Preferred.x264" || result.Releases[0].Score != 600 {
+		t.Fatalf("expected first release to be Preferred (score 600), got %+v", result.Releases[0])
+	}
+	if result.Releases[2].Title != "Inception.2010.1080p.BluRay.German.Dubbed.x264" || result.Releases[2].Score != -650 {
+		t.Fatalf("expected last release to be German dub (score -650), got %+v", result.Releases[2])
 	}
 }

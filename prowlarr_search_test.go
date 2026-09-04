@@ -381,3 +381,159 @@ func TestRedactErrorStripsCredentials(t *testing.T) {
 		t.Fatal("redactError(nil) should be empty")
 	}
 }
+
+func TestSortProwlarrReleasesByCustomFormats(t *testing.T) {
+	formats := []CustomFormat{
+		{Name: "Preferred", Regex: `(?i)\b(?:Preferred|TopGroup)\b`, Score: 500},
+		{Name: "Fallback", Regex: `(?i)\bFallback\b`, Score: 100},
+		{Name: "Dubbed", Regex: `(?i)\bDubbed\b`, Score: -500},
+	}
+	releases := []prowlarrRelease{
+		{GUID: "dubbed", Title: "Movie.2026.1080p.BluRay.Dubbed.x264", PublishDate: "2026-09-01T10:00:00Z"},
+		{GUID: "neutral", Title: "Movie.2026.1080p.BluRay.x264", PublishDate: "2026-09-01T12:00:00Z"},
+		{GUID: "fallback", Title: "Movie.2026.1080p.BluRay.Fallback.x264", PublishDate: "2026-09-01T13:00:00Z"},
+		{GUID: "pref1080", Title: "Movie.2026.1080p.BluRay.Preferred.x264", PublishDate: "2026-09-01T14:00:00Z"},
+		{GUID: "pref2160", Title: "Movie.2026.2160p.BluRay.Preferred.x265", PublishDate: "2026-09-01T15:00:00Z"},
+	}
+
+	sortProwlarrReleases(releases, formats)
+
+	if releases[0].GUID != "pref2160" {
+		t.Fatalf("expected top release to be pref2160, got %q", releases[0].GUID)
+	}
+	if releases[1].GUID != "pref1080" {
+		t.Fatalf("expected second release to be pref1080, got %q", releases[1].GUID)
+	}
+	if releases[2].GUID != "fallback" {
+		t.Fatalf("expected third release to be fallback, got %q", releases[2].GUID)
+	}
+	if releases[3].GUID != "neutral" {
+		t.Fatalf("expected fourth release to be neutral, got %q", releases[3].GUID)
+	}
+	if releases[4].GUID != "dubbed" {
+		t.Fatalf("expected last release to be dubbed, got %q", releases[4].GUID)
+	}
+}
+
+func TestMatchProwlarrReleasesWithCustomFormatRejection(t *testing.T) {
+	formats := []CustomFormat{
+		{Name: "German", Regex: `(?i)\b(?:german|deutsch)\b`, Reject: true},
+	}
+	quality := QualityConfig{CustomFormats: formats}
+
+	item := monitoredMedia{Title: "Inception", Year: 2010, MediaType: "movie"}
+
+	germanOnly := []prowlarrRelease{
+		{GUID: "1", Title: "Inception.2010.1080p.German.DL.x264"},
+	}
+	if matchProwlarrReleasesWithQuality(germanOnly, item, quality) {
+		t.Fatal("expected match to fail when only release is rejected by custom format")
+	}
+
+	mixed := []prowlarrRelease{
+		{GUID: "1", Title: "Inception.2010.1080p.German.DL.x264"},
+		{GUID: "2", Title: "Inception.2010.1080p.BluRay.x264"},
+	}
+	if !matchProwlarrReleasesWithQuality(mixed, item, quality) {
+		t.Fatal("expected match to succeed when a non-rejected release exists")
+	}
+}
+
+func TestMatchEpisodeWithQualityCustomFormatRejection(t *testing.T) {
+	formats := []CustomFormat{
+		{Name: "German", Regex: `(?i)\b(?:german|deutsch)\b`, Reject: true},
+	}
+	quality := QualityConfig{CustomFormats: formats}
+	item := monitoredMedia{Title: "Severance", MediaType: "series"}
+	ep := virtualEpisode{Season: 1, Episode: 1}
+
+	client := newProwlarrSearchClient(nil)
+	client.Configure("https://prowlarr.example.com", "key", 15)
+
+	client.releases = []prowlarrRelease{
+		{GUID: "1", Title: "Severance.S01E01.1080p.German.DL.x264"},
+	}
+	if client.MatchEpisodeWithQuality(item, ep, quality) {
+		t.Fatal("expected episode match to fail when only release is rejected by custom format")
+	}
+
+	client.releases = []prowlarrRelease{
+		{GUID: "1", Title: "Severance.S01E01.1080p.German.DL.x264"},
+		{GUID: "2", Title: "Severance.S01E01.1080p.BluRay.x264"},
+	}
+	if !client.MatchEpisodeWithQuality(item, ep, quality) {
+		t.Fatal("expected episode match to succeed when a non-rejected release exists")
+	}
+}
+
+func TestSortProwlarrReleasesSingleReleasePopulatesQualityScore(t *testing.T) {
+	formats := []CustomFormat{
+		{Name: "Preferred", Regex: `(?i)\bPreferred\b`, Score: 500},
+	}
+	releases := []prowlarrRelease{
+		{GUID: "single", Title: "Movie.2026.1080p.BluRay.Preferred.x264"},
+	}
+	sortProwlarrReleases(releases, formats)
+	if releases[0].parsedCandidate == nil {
+		t.Fatal("expected parsedCandidate to be non-nil")
+	}
+	if releases[0].parsedCandidate.QualityScore != 500 {
+		t.Fatalf("expected QualityScore = 500, got %d", releases[0].parsedCandidate.QualityScore)
+	}
+}
+
+func TestSortProwlarrReleasesPublishDateRFC3339(t *testing.T) {
+	releases := []prowlarrRelease{
+		{GUID: "older-string-newer-time", Title: "Movie.2026.1080p.BluRay.x264", PublishDate: "2026-09-01T12:00:00-05:00"},
+		{GUID: "newer-string-older-time", Title: "Movie.2026.1080p.BluRay.x264", PublishDate: "2026-09-01T15:00:00Z"},
+	}
+	sortProwlarrReleases(releases, nil)
+	if releases[0].GUID != "older-string-newer-time" {
+		t.Fatalf("expected release with newer timestamp to be first, got %s", releases[0].GUID)
+	}
+}
+
+func TestSortProwlarrReleasesPublishDateRFC3339EdgeCases(t *testing.T) {
+	// Valid RFC3339 timestamp must sort before an unparseable string like "yesterday",
+	// and leading/trailing whitespace must not break timestamp parsing.
+	releases := []prowlarrRelease{
+		{GUID: "unparseable", Title: "Movie.2026.1080p.BluRay.x264", PublishDate: "yesterday"},
+		{GUID: "valid-spaced", Title: "Movie.2026.1080p.BluRay.x264", PublishDate: " 2026-09-02T10:00:00Z "},
+		{GUID: "valid-older", Title: "Movie.2026.1080p.BluRay.x264", PublishDate: "2026-09-01T10:00:00Z"},
+	}
+	sortProwlarrReleases(releases, nil)
+	if releases[0].GUID != "valid-spaced" {
+		t.Fatalf("expected valid-spaced (Sep 2) to be first, got %s", releases[0].GUID)
+	}
+	if releases[1].GUID != "valid-older" {
+		t.Fatalf("expected valid-older (Sep 1) to be second, got %s", releases[1].GUID)
+	}
+	if releases[2].GUID != "unparseable" {
+		t.Fatalf("expected unparseable to be last, got %s", releases[2].GUID)
+	}
+}
+
+func TestReleaseMatchesQualityPreservesCaching(t *testing.T) {
+	profiles := []QualityProfile{
+		{Label: "1080p", Resolution: "1080p"},
+	}
+	rel := prowlarrRelease{Title: "Show.S01E01.1080p.WEB-DL.x264"}
+	if rel.parsedCandidate != nil {
+		t.Fatal("expected parsedCandidate to start nil")
+	}
+	matches := releaseMatchesQuality(&rel, profiles)
+	if !matches {
+		t.Fatal("expected release to match 1080p profile")
+	}
+	if rel.parsedCandidate == nil {
+		t.Fatal("expected releaseMatchesQuality to cache parsedCandidate on caller release")
+	}
+	if rel.normalizedTitle == "" {
+		t.Fatal("expected releaseMatchesQuality to cache normalizedTitle on caller release")
+	}
+	if len(rel.episodeKeys) == 0 {
+		t.Fatal("expected releaseMatchesQuality to cache episodeKeys on caller release")
+	}
+}
+
+

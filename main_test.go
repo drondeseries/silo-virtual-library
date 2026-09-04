@@ -464,6 +464,63 @@ func TestCustomFormatPresets(t *testing.T) {
 	}
 }
 
+func TestCustomFormatsScoringAndSorting(t *testing.T) {
+	formats := []CustomFormat{
+		{Name: "Tier 1", Regex: `(?i)\bTIER1\b`, Score: 600},
+		{Name: "Tier 2", Regex: `(?i)\bTIER2\b`, Score: 400},
+		{Name: "Penalty", Regex: `(?i)\bPENALTY\b`, Score: -500},
+		{Name: "Banned", Regex: `(?i)\bBANNED\b`, Reject: true},
+	}
+	config := QualityConfig{CustomFormats: formats}
+	if err := config.Validate(); err != nil {
+		t.Fatalf("validation failed: %v", err)
+	}
+
+	candTier1 := StreamCandidate{Title: "Release.1080p.TIER1.x264"}
+	candTier2 := StreamCandidate{Title: "Release.1080p.TIER2.x264"}
+	candNeutral := StreamCandidate{Title: "Release.1080p.x264"}
+	candPenalty := StreamCandidate{Title: "Release.1080p.PENALTY.x264"}
+	candBanned := StreamCandidate{Title: "Release.1080p.BANNED.x264"}
+
+	score1, rej1 := customFormatScore(candTier1, config.CustomFormats)
+	if rej1 || score1 != 600 {
+		t.Fatalf("Tier 1 score = %d, rej = %t, want 600, false", score1, rej1)
+	}
+
+	score2, rej2 := customFormatScore(candTier2, config.CustomFormats)
+	if rej2 || score2 != 400 {
+		t.Fatalf("Tier 2 score = %d, rej = %t, want 400, false", score2, rej2)
+	}
+
+	scoreN, rejN := customFormatScore(candNeutral, config.CustomFormats)
+	if rejN || scoreN != 0 {
+		t.Fatalf("Neutral score = %d, rej = %t, want 0, false", scoreN, rejN)
+	}
+
+	scoreP, rejP := customFormatScore(candPenalty, config.CustomFormats)
+	if rejP || scoreP != -500 {
+		t.Fatalf("Penalty score = %d, rej = %t, want -500, false", scoreP, rejP)
+	}
+
+	scoreB, rejB := customFormatScore(candBanned, config.CustomFormats)
+	if !rejB {
+		t.Fatalf("Banned score = %d, rej = %t, want rejected", scoreB, rejB)
+	}
+
+	candidates := []StreamCandidate{candPenalty, candNeutral, candTier2, candBanned, candTier1}
+	sortCandidatesForProfile(candidates, QualityProfile{}, config.CustomFormats)
+	if candidates[0].Title != candTier1.Title {
+		t.Fatalf("top candidate = %q, want %q", candidates[0].Title, candTier1.Title)
+	}
+	if candidates[1].Title != candTier2.Title {
+		t.Fatalf("second candidate = %q, want %q", candidates[1].Title, candTier2.Title)
+	}
+	lastIdx := len(candidates) - 1
+	if candidates[lastIdx].Title != candBanned.Title {
+		t.Fatalf("bottom candidate = %q, want %q (rejected)", candidates[lastIdx].Title, candBanned.Title)
+	}
+}
+
 func TestCustomFormatsRankAndReject(t *testing.T) {
 	formats := []CustomFormat{
 		{Name: "English", Regex: `(?i)\b(?:eng|english)\b`, Score: 100},
@@ -479,6 +536,46 @@ func TestCustomFormatsRankAndReject(t *testing.T) {
 	}
 	if _, rejected := customFormatScore(german, formats); !rejected {
 		t.Fatal("expected German release to be rejected")
+	}
+}
+
+func TestCustomFormatsURLEncodingAndBehaviorHints(t *testing.T) {
+	formats := []CustomFormat{
+		{Name: "VOSTFR", Regex: `(?i)\bVOSTFR\b`, Score: 300},
+	}
+	candEncoded := StreamCandidate{URL: "https://provider.example/The%20Matrix%201999%20VOSTFR%201080p.mkv"}
+	score, rej := customFormatScore(candEncoded, formats)
+	if rej || score != 300 {
+		t.Fatalf("candEncoded score = %d, rej = %t, want 300, false", score, rej)
+	}
+
+	var candHint StreamCandidate
+	candHint.URL = "https://provider.example/stream/uuid-1234"
+	candHint.BehaviorHints.Filename = "The.Matrix.1999.VOSTFR.1080p.mkv"
+	scoreH, rejH := customFormatScore(candHint, formats)
+	if rejH || scoreH != 300 {
+		t.Fatalf("candHint score = %d, rej = %t, want 300, false", scoreH, rejH)
+	}
+
+	var candHintEncoded StreamCandidate
+	candHintEncoded.URL = "https://provider.example/stream/uuid-1234"
+	candHintEncoded.BehaviorHints.Filename = "The%20Matrix%201999%20VOSTFR%201080p.mkv"
+	scoreHE, rejHE := customFormatScore(candHintEncoded, formats)
+	if rejHE || scoreHE != 300 {
+		t.Fatalf("candHintEncoded score = %d, rej = %t, want 300, false", scoreHE, rejHE)
+	}
+}
+
+func TestSortCandidatesForProfileSingleCandidateQualityScore(t *testing.T) {
+	formats := []CustomFormat{
+		{Name: "Tier 1", Regex: `(?i)\bTIER1\b`, Score: 600},
+	}
+	candidates := []StreamCandidate{
+		{Title: "Release.1080p.TIER1.x264"},
+	}
+	sortCandidatesForProfile(candidates, QualityProfile{}, formats)
+	if candidates[0].QualityScore != 600 {
+		t.Fatalf("single candidate QualityScore = %d, want 600", candidates[0].QualityScore)
 	}
 }
 

@@ -358,9 +358,32 @@ func normalizeResolution(value string) string {
 
 func customFormatScore(candidate StreamCandidate, formats []CustomFormat) (int, bool) {
 	text := candidate.Name + " " + candidate.Description + " " + candidate.Title + " " + candidate.URL
+	if candidate.BehaviorHints.Filename != "" {
+		text += " " + candidate.BehaviorHints.Filename
+		if u, err := url.QueryUnescape(candidate.BehaviorHints.Filename); err == nil && u != "" && u != candidate.BehaviorHints.Filename {
+			text += " " + u
+		}
+		if u, err := url.PathUnescape(candidate.BehaviorHints.Filename); err == nil && u != "" && u != candidate.BehaviorHints.Filename {
+			text += " " + u
+		}
+	}
+	if u, err := url.QueryUnescape(candidate.URL); err == nil && u != "" {
+		text += " " + u
+	}
+	if u, err := url.PathUnescape(candidate.URL); err == nil && u != "" {
+		text += " " + u
+	}
 	score := 0
 	for _, format := range formats {
-		if format.match == nil || !format.match.MatchString(text) {
+		matcher := format.match
+		if matcher == nil && format.Regex != "" {
+			var err error
+			matcher, err = regexp.Compile(format.Regex)
+			if err != nil {
+				continue
+			}
+		}
+		if matcher == nil || !matcher.MatchString(text) {
 			continue
 		}
 		if format.Reject {
@@ -377,7 +400,11 @@ type scoredCandidate struct {
 }
 
 func sortCandidatesForProfile(candidates []StreamCandidate, p QualityProfile, formats []CustomFormat) {
-	if len(candidates) <= 1 {
+	if len(candidates) == 0 {
+		return
+	}
+	if len(candidates) == 1 {
+		candidates[0].QualityScore, _ = customFormatScore(candidates[0], formats)
 		return
 	}
 	scored := make([]scoredCandidate, len(candidates))
