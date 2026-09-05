@@ -920,6 +920,10 @@ func (s *runtimeServer) Run(ctx context.Context, req *pb.RunScheduledTaskRequest
 		if evaluationErr != nil {
 			pending++
 			reconcileSafeBySource[source] = false
+			if ctx.Err() != nil || errors.Is(evaluationErr, context.Canceled) || errors.Is(evaluationErr, context.DeadlineExceeded) || strings.Contains(evaluationErr.Error(), "context canceled") || strings.Contains(evaluationErr.Error(), "deadline exceeded") {
+				s.monitor.logger.Warn("monitor run stopped by context deadline", "completed", ready+pending, "total", len(items))
+				break
+			}
 			s.monitor.logger.Warn("evaluate virtual media", "key", item.Key, "error", evaluationErr)
 			continue
 		}
@@ -939,6 +943,10 @@ func (s *runtimeServer) Run(ctx context.Context, req *pb.RunScheduledTaskRequest
 			if err := s.monitor.register(ctx, updated); err != nil {
 				pending++
 				reconcileSafeBySource[source] = false
+				if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || strings.Contains(err.Error(), "context canceled") || strings.Contains(err.Error(), "deadline exceeded") {
+					s.monitor.logger.Warn("monitor run stopped by context deadline", "completed", ready+pending, "total", len(items))
+					break
+				}
 				s.monitor.logger.Error("register virtual media", "key", updated.Key, "error", err)
 				continue
 			}
