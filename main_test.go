@@ -1181,3 +1181,33 @@ func TestResolveVirtualStreamHonorsExclusionsAndPreferred(t *testing.T) {
 		t.Fatalf("second candidate = %q, want %q", resCandidates[1].GetCandidateId(), candB_ID)
 	}
 }
+
+func TestParseStreamMetadataPopulatesSubtitleLanguages(t *testing.T) {
+	// A release that carries subtitle markers should advertise subtitle
+	// languages so Silo can list and serve them.
+	withSubtitles := StreamCandidate{Name: "Movie.2026.1080p.WEB-DL.DDP5.1.H.264-MULTi", Description: "Subtitles: eng / fra", Title: ""}
+	parseStreamMetadata(&withSubtitles)
+	if len(withSubtitles.SubtitleLanguages) == 0 {
+		t.Fatalf("expected subtitle languages from subtitle-marked release, got %v", withSubtitles.SubtitleLanguages)
+	}
+	found := false
+	for _, lang := range withSubtitles.SubtitleLanguages {
+		if lang == "ENG" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("subtitle languages = %v, want ENG among them", withSubtitles.SubtitleLanguages)
+	}
+	if len(withSubtitles.SubtitleLanguages) != 2 {
+		t.Fatalf("subtitle languages = %v, want [ENG FRA]", withSubtitles.SubtitleLanguages)
+	}
+
+	// An audio-only language marker without any subtitle hint must not be
+	// advertised as a subtitle track.
+	audioOnly := StreamCandidate{Name: "Movie.2026.1080p.WEB-DL.DDP5.1.H.264", Description: "English audio", Title: ""}
+	parseStreamMetadata(&audioOnly)
+	if len(audioOnly.SubtitleLanguages) != 0 {
+		t.Fatalf("audio-only release wrongly advertised subtitle languages: %v", audioOnly.SubtitleLanguages)
+	}
+}
