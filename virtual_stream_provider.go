@@ -68,7 +68,17 @@ func (s *virtualStreamProvider) ResolveVirtualStream(ctx context.Context, req *p
 	}
 	var candidates []StreamCandidate
 	if forceRefresh {
-		candidates, _, _, err = s.resolver.GetCandidatesFresh(ctx, path)
+		// A forced refresh with no excluded candidates is a genuine re-list:
+		// the host is recovering from a dead stream (relay 502) and needs a
+		// fresh provider answer, not the cached candidates that just failed.
+		// When candidates are excluded the host is walking the failover list
+		// inside one playback start, so the freshServeFloor still applies to
+		// keep that walk on a single provider round-trip.
+		if len(req.GetExcludedCandidateIds()) == 0 {
+			candidates, _, _, err = s.resolver.GetCandidatesFreshUnbounded(ctx, path)
+		} else {
+			candidates, _, _, err = s.resolver.GetCandidatesFresh(ctx, path)
+		}
 	} else {
 		candidates, _, _, err = s.resolver.GetCandidates(ctx, path)
 	}

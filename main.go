@@ -297,16 +297,26 @@ func (c *manifestStreamResolver) SelectCandidates(virtualPath string, candidates
 }
 
 func (c *manifestStreamResolver) GetCandidates(ctx context.Context, virtualPath string) ([]StreamCandidate, string, string, error) {
-	return c.getCandidates(ctx, virtualPath, false)
+	return c.getCandidates(ctx, virtualPath, false, false)
 }
 
 // GetCandidatesFresh bypasses the bounded candidate cache for an explicit
 // user refresh/retry while retaining the normal cache behavior by default.
 func (c *manifestStreamResolver) GetCandidatesFresh(ctx context.Context, virtualPath string) ([]StreamCandidate, string, string, error) {
-	return c.getCandidates(ctx, virtualPath, true)
+	return c.getCandidates(ctx, virtualPath, true, false)
 }
 
-func (c *manifestStreamResolver) getCandidates(ctx context.Context, virtualPath string, forceRefresh bool) ([]StreamCandidate, string, string, error) {
+// GetCandidatesFreshUnbounded re-lists candidates from the provider even when
+// the cache entry is younger than freshServeFloor. The floor exists so the
+// transport failover walk (which excludes failed candidate IDs) stays on one
+// provider round-trip per playback start; a genuine re-list — the host asking
+// for a fresh answer after the relay returned 502 — must not be served the
+// same dead candidates it is trying to escape.
+func (c *manifestStreamResolver) GetCandidatesFreshUnbounded(ctx context.Context, virtualPath string) ([]StreamCandidate, string, string, error) {
+	return c.getCandidates(ctx, virtualPath, true, true)
+}
+
+func (c *manifestStreamResolver) getCandidates(ctx context.Context, virtualPath string, forceRefresh bool, bypassFloor bool) ([]StreamCandidate, string, string, error) {
 	mediaType, mediaID, err := parseVirtualPath(virtualPath)
 	if err != nil {
 		return nil, mediaType, mediaID, err
@@ -361,7 +371,7 @@ func (c *manifestStreamResolver) getCandidates(ctx context.Context, virtualPath 
 	}
 	cacheKey := mediaType + "|" + mediaID
 
-	if forceRefresh {
+	if forceRefresh && !bypassFloor {
 		// Forced lookups still serve very recent answers. One playback start
 		// walks several resolve rounds; re-fetching within a single attempt
 		// multiplies provider latency without producing new information, so

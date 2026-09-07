@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"sync/atomic"
 	"testing"
 
 	pb "github.com/Silo-Server/silo-plugin-sdk/pkg/pluginproto/silo/plugin/v1"
@@ -121,3 +123,92 @@ func TestResolveVirtualStreamSingleStreamWithFailoverResultsAll(t *testing.T) {
 	}
 }
 
+// A forced refresh with no excluded candidates is a genuine re-list: the host
+// is recovering from a dead stream (relay 502) and must get a fresh provider
+// answer even when the cache entry is younger than freshServeFloor.
+func TestResolveVirtualStreamForceRefreshRelistsWithinFloor(t *testing.T) {
+	var calls atomic.Int32
+	client := &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		call := calls.Add(1)
+		body, _ := json.Marshal(map[string]any{"streams": []map[string]string{
+			{"title": "Stream", "url": fmt.Sprintf("https://provider.example/%d.mkv", call)},
+		}})
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(body)), Header: make(http.Header)}, nil
+	})}
+	resolver := &manifestStreamResolver{client: client}
+	resolver.Configure(resolverConfig{ManifestURL: "https://provider.example/manifest.json"})
+	provider := &virtualStreamProvider{resolver: resolver}
+
+	first, err := provider.ResolveVirtualStream(context.Background(), &pb.ResolveVirtualStreamRequest{
+		MediaType:   "movie",
+		ExternalIds: map[string]string{"imdb": "tt1234567"},
+	})
+	if err != nil {
+		t.Fatalf("first ResolveVirtualStream() error = %v", err)
+	}
+	if len(first.GetResult().GetCandidates()) != 1 {
+		t.Fatalf("first candidates = %d, want 1", len(first.GetResult().GetCandidates()))
+	}
+
+	// The forced re-list must hit the provider again even though the first
+	// answer is younger than freshServeFloor.
+	metadata, err := structpb.NewStruct(map[string]any{"force_refresh": true})
+	if err != nil {
+		t.Fatalf("NewStruct: %v", err)
+	}
+	refreshed, err := provider.ResolveVirtualStream(context.Background(), &pb.ResolveVirtualStreamRequest{
+		MediaType:   "movie",
+		ExternalIds: map[string]string{"imdb": "tt1234567"},
+		Metadata:    metadata,
+	})
+	if err != nil {
+		t.Fatalf("refreshed ResolveVirtualStream() error = %v", err)
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("provider calls = %d, want 2 (re-list must bypass the fresh floor)", calls.Load())
+	}
+	if len(refreshed.GetResult().GetCandidates()) != 1 ||
+		refreshed.GetResult().GetCandidates()[0].GetTemporaryUri() == first.GetResult().GetCandidates()[0].GetTemporaryUri() {
+		t.Fatalf("refreshed candidate = %q, want a new provider URL", refreshed.GetResult().GetCandidates()[0].GetTemporaryUri())
+	}
+}
+
+// A forced refresh WITH excluded candidates is a failover walk inside one
+// playback start: the freshServeFloor still applies so the walk stays on a
+// single provider round-trip.
+func TestResolveVirtualStreamForceRefreshWithExclusionsKeepsFloor(t *testing.T) {
+	var calls atomic.Int32
+	client := &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		call := calls.Add(1)
+		body, _ := json.Marshal(map[string]any{"streams": []map[string]string{
+			{"title": "Stream", "url": fmt.Sprintf("https://provider.example/%d.mkv", call)},
+		}})
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(body)), Header: make(http.Header)}, nil
+	})}
+	resolver := &manifestStreamResolver{client: client}
+	resolver.Configure(resolverConfig{ManifestURL: "https://provider.example/manifest.json"})
+	provider := &virtualStreamProvider{resolver: resolver}
+
+	if _, err := provider.ResolveVirtualStream(context.Background(), &pb.ResolveVirtualStreamRequest{
+		MediaType:   "movie",
+		ExternalIds: map[string]string{"imdb": "tt1234567"},
+	}); err != nil {
+		t.Fatalf("first ResolveVirtualStream() error = %v", err)
+	}
+
+	metadata, err := structpb.NewStruct(map[string]any{"force_refresh": true})
+	if err != nil {
+		t.Fatalf("NewStruct: %v", err)
+	}
+	if _, err := provider.ResolveVirtualStream(context.Background(), &pb.ResolveVirtualStreamRequest{
+		MediaType:            "movie",
+		ExternalIds:          map[string]string{"imdb": "tt1234567"},
+		Metadata:             metadata,
+		ExcludedCandidateIds: []string{"dead-candidate"},
+	}); err != nil {
+		t.Fatalf("failover ResolveVirtualStream() error = %v", err)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("provider calls = %d, want 1 (failover walk must keep the fresh floor)", calls.Load())
+	}
+}
