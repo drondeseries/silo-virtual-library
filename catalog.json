@@ -3,7 +3,7 @@
     {
       "manifest": {
         "plugin_id": "com.drondeseries.silo-virtual-library",
-        "version": "0.4.107",
+        "version": "0.4.108",
         "silo_api_version": "v1",
         "capabilities": [
           {
@@ -442,20 +442,20 @@
           }
         ]
       },
-      "repo_url": "https://github.com/drondeseries/silo-virtual-library",
-      "checksums_url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.107/checksums.txt",
+      "repo_url": "https://github.com/randrini/silo-virtual-library",
+      "checksums_url": "https://github.com/randrini/silo-virtual-library/releases/download/v0.4.108/checksums.txt",
       "binaries": {
         "linux/amd64": {
-          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.107/plugin-linux-amd64",
-          "checksum": "864a2e43814334277192c3f999a0af68c23297f9f5c77844578f750c4ce50331"
+          "url": "https://github.com/randrini/silo-virtual-library/releases/download/v0.4.108/plugin-linux-amd64",
+          "checksum": "3f1ce56e134eccbbab694aa6c3c09a7882d0f7132b1715e12daa508ce3e0e5cb"
         },
         "linux/arm64": {
-          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.107/plugin-linux-arm64",
-          "checksum": "c85c683e539499eaaca10a591a1904d303779f9edb83d07b072167596a05eaf7"
+          "url": "https://github.com/randrini/silo-virtual-library/releases/download/v0.4.108/plugin-linux-arm64",
+          "checksum": "5822bb066931f6ddede7e4e608109594390b75548eedc1a6e25055e6bdf54e35"
         },
         "darwin/arm64": {
-          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.107/plugin-darwin-arm64",
-          "checksum": "ef4969102eed3f97a3cf522759acbf8f3de2cf4dd328a54cba5ccb9c1b71742a"
+          "url": "https://github.com/randrini/silo-virtual-library/releases/download/v0.4.108/plugin-darwin-arm64",
+          "checksum": "639b6f19f767720fd869ec7da8e4daf8928510d4e5eed5c7f1fd90c387089d1b"
         }
       }
     }
