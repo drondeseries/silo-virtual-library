@@ -11,7 +11,7 @@ import (
 )
 
 var streamSizePattern = regexp.MustCompile(`(?i)\b\d+(?:\.\d+)?\s*(?:TB|GB|MB)\b`)
-var languagePattern = regexp.MustCompile(`(?i)\b(?:eng|en|fra|fre|fr|deu|ger|de|ita|es|spa|jpn|kor|zho|chi|por|rus|ara|multi)\b`)
+var languagePattern = regexp.MustCompile(`(?i)\b(?:eng|en|fra|fre|fr|deu|ger|de|ita|es|spa|jpn|kor|zho|chi|por|rus|ara)\b`)
 var (
 	dolbyVisionPattern = regexp.MustCompile(`(?i)(?:\bdolby[ ._-]*vision\b|\bdv\b)`)
 	atmosPattern       = regexp.MustCompile(`(?i)\batmos\b`)
