@@ -2,7 +2,7 @@
   "plugins": [
     {
       "manifest": {
-        "plugin_id": "com.drondeseries.silo-virtual-library",
+        "plugin_id": "com.randrini.silo-virtual-library",
         "version": "0.4.108",
         "silo_api_version": "v1",
         "capabilities": [
