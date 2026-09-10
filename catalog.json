@@ -447,15 +447,15 @@
       "binaries": {
         "linux/amd64": {
           "url": "https://github.com/randrini/silo-virtual-library/releases/download/v0.4.108/plugin-linux-amd64",
-          "checksum": "3f1ce56e134eccbbab694aa6c3c09a7882d0f7132b1715e12daa508ce3e0e5cb"
+          "checksum": "f21fc4d036946c84542aa2754c68feb40a9ac5b33563c88cd44fa90156201a67"
         },
         "linux/arm64": {
           "url": "https://github.com/randrini/silo-virtual-library/releases/download/v0.4.108/plugin-linux-arm64",
-          "checksum": "5822bb066931f6ddede7e4e608109594390b75548eedc1a6e25055e6bdf54e35"
+          "checksum": "2f60be7208e8ffa11b3cea3e7953938286dc79679aed08289dbaf052fbaffb0a"
         },
         "darwin/arm64": {
           "url": "https://github.com/randrini/silo-virtual-library/releases/download/v0.4.108/plugin-darwin-arm64",
-          "checksum": "639b6f19f767720fd869ec7da8e4daf8928510d4e5eed5c7f1fd90c387089d1b"
+          "checksum": "699c0b8849cdc39eca3b64986851a4fe0a36cddd5c1cb48554c4ec844f26a24e"
         }
       }
     }
