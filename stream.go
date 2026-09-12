@@ -23,6 +23,13 @@ var (
 	aacPattern         = regexp.MustCompile(`(?i)\baac\b`)
 )
 
+// subtitlePattern matches subtitle-track markers in release metadata: common
+// subtitle container extensions (.srt/.ass/.ssa/.sub/.vtt), the "subtitles"
+// word, and forced/HI qualifiers. It does not match audio-only tokens so the
+// same language code in the audio list does not bleed into subtitles.
+var subtitlePattern = regexp.MustCompile(`(?i)\b(?:srt|ass|ssa|sub|vtt|pgs|sup|subtitle[s]?|forced|hi)\b`)
+var subtitleLanguagePattern = regexp.MustCompile(`(?i)\b(?:eng|en|fra|fre|fr|deu|ger|de|ita|es|spa|jpn|kor|zho|chi|por|rus|ara)\b`)
+
 type StreamCandidate struct {
 	URL           string
 	Name          string
@@ -50,6 +57,13 @@ type StreamCandidate struct {
 	RequestHeaders    map[string]string
 	QualityScore      int
 	OriginalIndex     int
+	// SourceConfirmed marks a candidate whose release the configured source of
+	// truth (AltMount's completed/imported state, or Prowlarr as a fallback)
+	// has already accepted. SourceFailed marks a release AltMount reports as
+	// failed. Both are provider-local derived state, never part of the Stremio
+	// payload, so a provider response cannot spoof them.
+	SourceConfirmed bool `json:"-"`
+	SourceFailed    bool `json:"-"`
 }
 
 func parseStreamDetails(s *StreamCandidate) {
@@ -162,6 +176,21 @@ func parseStreamMetadata(s *StreamCandidate) {
 		if !seen[match] {
 			seen[match] = true
 			s.AudioLanguages = append(s.AudioLanguages, match)
+		}
+	}
+
+	// Subtitle languages: only parse when the release text actually carries a
+	// subtitle marker (an extension, the "subtitles" word, or a forced/HI
+	// qualifier). A bare language token that only appears in the audio context
+	// (e.g. "English DD5.1") must not be advertised as a subtitle track.
+	if subtitlePattern.MatchString(text) {
+		subSeen := map[string]bool{}
+		for _, match := range subtitleLanguagePattern.FindAllString(strings.ToLower(text), -1) {
+			match = strings.ToUpper(match)
+			if !subSeen[match] {
+				subSeen[match] = true
+				s.SubtitleLanguages = append(s.SubtitleLanguages, match)
+			}
 		}
 	}
 

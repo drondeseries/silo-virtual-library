@@ -103,6 +103,15 @@ type streamResolver interface {
 type candidateLister interface {
 	GetCandidates(context.Context, string) ([]StreamCandidate, string, string, error)
 }
+
+// candidateClassifier marks provider candidates with the authoritative
+// completed/failed state of the configured source of truth. AltMount is the
+// primary implementation; Prowlarr is the fallback when AltMount is not
+// configured. Implementations must be safe to call concurrently with their own
+// refresh.
+type candidateClassifier interface {
+	ClassifyCandidates(candidates []StreamCandidate)
+}
 type resolverConfig struct {
 	ManifestURL            string
 	AllowInsecure          bool
@@ -125,6 +134,7 @@ type manifestStreamResolver struct {
 	refreshes       map[string]chan struct{}
 	syncFlights     map[string]chan struct{}
 	releaseStore    *release.ReleaseStore
+	classifier      candidateClassifier
 	logger          hclog.Logger
 }
 
@@ -199,6 +209,72 @@ func cloneCandidates(candidates []StreamCandidate) []StreamCandidate {
 	return append([]StreamCandidate(nil), candidates...)
 }
 
+// SetCandidateClassifier installs the completed/failed classifier. It is safe
+// to call on every Configure: the classifier is typically a long-lived client
+// whose cache is refreshed out of band.
+func (c *manifestStreamResolver) SetCandidateClassifier(classifier candidateClassifier) {
+	c.mu.Lock()
+	c.classifier = classifier
+	c.mu.Unlock()
+}
+
+// preferConfirmedCandidates applies the source-of-truth state to the ranked
+// candidate list: releases AltMount reports as failed are dropped, and
+// completed/imported releases are stably moved ahead of unconfirmed ones.
+// Order within each group is preserved, so the operator's quality ranking
+// still decides which confirmed release wins. Candidates reaching this point
+// already passed the profile and custom-format filters, so confirmation never
+// overrides an explicit reject.
+func (c *manifestStreamResolver) preferConfirmedCandidates(candidates []StreamCandidate) []StreamCandidate {
+	if len(candidates) == 0 {
+		return candidates
+	}
+	// The AltMount Stremio addon marks releases it already imported with a
+	// "⚡ Cached" badge. That is a free, zero-config signal even when the
+	// AltMount API is not configured, so honor it before the classifier runs.
+	markAltmountBadgeCandidates(candidates)
+	c.mu.RLock()
+	classifier := c.classifier
+	c.mu.RUnlock()
+	if classifier != nil {
+		classifier.ClassifyCandidates(candidates)
+	}
+	return stablePartitionCandidates(candidates)
+}
+
+// stablePartitionCandidates drops known-dead candidates and stably moves
+// confirmed ones to the front, returning the possibly-shortened slice.
+func stablePartitionCandidates(candidates []StreamCandidate) []StreamCandidate {
+	kept := candidates[:0]
+	confirmed := 0
+	for _, candidate := range candidates {
+		if candidate.SourceFailed {
+			continue
+		}
+		if candidate.SourceConfirmed {
+			confirmed++
+		}
+		kept = append(kept, candidate)
+	}
+	candidates = kept
+	if confirmed == 0 || confirmed == len(candidates) {
+		return candidates
+	}
+	ordered := make([]StreamCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate.SourceConfirmed {
+			ordered = append(ordered, candidate)
+		}
+	}
+	for _, candidate := range candidates {
+		if !candidate.SourceConfirmed {
+			ordered = append(ordered, candidate)
+		}
+	}
+	copy(candidates, ordered)
+	return candidates
+}
+
 func (c *manifestStreamResolver) Resolve(ctx context.Context, virtualPath string) (string, error) {
 	candidates, _, _, err := c.GetCandidates(ctx, virtualPath)
 	if err != nil {
@@ -261,6 +337,10 @@ func (c *manifestStreamResolver) SelectCandidates(virtualPath string, candidates
 		}
 		if len(matched) > 0 {
 			sortCandidatesForProfile(matched, profile, config.CustomFormats)
+			matched = c.preferConfirmedCandidates(matched)
+			if len(matched) == 0 {
+				return nil
+			}
 			if requestedResult != "" {
 				for _, candidate := range matched {
 					if candidateVariantID(candidate) == requestedResult {
@@ -285,6 +365,7 @@ func (c *manifestStreamResolver) SelectCandidates(virtualPath string, candidates
 	}
 	ranked = filtered
 	sortCandidatesForProfile(ranked, QualityProfile{}, config.CustomFormats)
+	ranked = c.preferConfirmedCandidates(ranked)
 	if requestedResult != "" {
 		for _, candidate := range ranked {
 			if candidateVariantID(candidate) == requestedResult {
@@ -1212,6 +1293,24 @@ func (s *runtimeServer) Configure(_ context.Context, request *pb.ConfigureReques
 		// can add every Prowlarr indexer. One shared key and interval.
 		if err := s.monitor.configureProwlarr(strings.TrimSpace(rssURL), strings.TrimSpace(rssKey), int(rssMinutes), stagedMonitorConfig.ProwlarrIndexFile); err != nil {
 			return nil, err
+		}
+		// AltMount is the authoritative completed/failed source when
+		// configured; Prowlarr remains the fallback known-good signal.
+		altmountURL, _ := entry.GetValue().AsMap()["altmount_url"].(string)
+		altmountKey, _ := entry.GetValue().AsMap()["altmount_api_key"].(string)
+		altmountMinutes, _ := entry.GetValue().AsMap()["altmount_check_minutes"].(float64)
+		altmountStateFile, _ := entry.GetValue().AsMap()["altmount_state_file"].(string)
+		altmountStateFile = resolvePluginDataPath(altmountStateFile, ".silo-virtual-library-altmount-state.json")
+		if err := s.monitor.configureAltmount(strings.TrimSpace(altmountURL), strings.TrimSpace(altmountKey), int(altmountMinutes), altmountStateFile); err != nil {
+			return nil, err
+		}
+		// Let playback prefer releases the source of truth already confirmed
+		// instead of re-resolving past them.
+		altmountClient := s.monitor.altmountClient()
+		if altmountClient.URL() != "" {
+			s.resolver.SetCandidateClassifier(altmountClient)
+		} else {
+			s.resolver.SetCandidateClassifier(s.monitor.prowlarrClient())
 		}
 		s.monitor.applyConfiguration(stagedMonitorConfig, monitoredItems, library, true)
 		return &pb.ConfigureResponse{}, nil

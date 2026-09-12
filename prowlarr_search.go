@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -425,6 +426,135 @@ func normalizeReleaseTitle(raw string) (title string, year int) {
 func normalizedReleaseTitle(raw string) string {
 	title, _ := normalizeReleaseTitle(raw)
 	return title
+}
+
+// releaseNameKey reduces a release or provider filename to a comparable
+// identity: lowercase, extension stripped, all non-alphanumerics removed. Two
+// postings of the same scene release normalize to the same key even when one
+// uses dots and the other spaces.
+func releaseNameKey(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return ""
+	}
+	if idx := strings.IndexAny(value, "?#"); idx != -1 {
+		value = value[:idx]
+	}
+	for _, ext := range []string{".mkv", ".mp4", ".avi", ".ts", ".m2ts", ".mov", ".webm"} {
+		value = strings.TrimSuffix(value, ext)
+	}
+	return prowlarrCleanPattern.ReplaceAllString(value, "")
+}
+
+// candidateReleaseName returns the most release-like identity carried by a
+// provider candidate. AltMount-style providers put the release name on the
+// first line of the stream title (the remaining lines carry size and indexer
+// badges), so only the first line is considered.
+func candidateReleaseName(candidate StreamCandidate) string {
+	for _, value := range []string{
+		candidate.BehaviorHints.Filename,
+		firstReleaseLine(candidate.Title),
+		firstReleaseLine(candidate.Name),
+	} {
+		if key := releaseNameKey(value); key != "" {
+			return key
+		}
+	}
+	if parsed, err := url.Parse(strings.TrimSpace(candidate.URL)); err == nil {
+		if key := releaseNameKey(path.Base(parsed.Path)); key != "" {
+			return key
+		}
+	}
+	return ""
+}
+
+func firstReleaseLine(value string) string {
+	if idx := strings.IndexAny(value, "\r\n"); idx >= 0 {
+		return value[:idx]
+	}
+	return value
+}
+
+// releaseSizesMatch reports whether two byte sizes plausibly describe the same
+// file. Provider display sizes are rounded (and parsed as decimal GB), so the
+// tolerance is wider than a byte-exact comparison. Unknown sizes never reject a
+// match.
+func releaseSizesMatch(a, b int64) bool {
+	if a <= 0 || b <= 0 {
+		return true
+	}
+	diff := a - b
+	if diff < 0 {
+		diff = -diff
+	}
+	largest := a
+	if b > largest {
+		largest = b
+	}
+	return float64(diff)/float64(largest) <= 0.10
+}
+
+// prowlarrReleaseConfirmsCandidate reports whether a provider candidate is the
+// same release that Prowlarr already indexed. Exact release-name identity is
+// the primary signal; a normalized title+year match additionally requires
+// compatible sizes so a different quality tier is not treated as confirmed.
+func prowlarrReleaseConfirmsCandidate(release prowlarrRelease, candidate StreamCandidate) bool {
+	candidateKey := candidateReleaseName(candidate)
+	if candidateKey == "" {
+		return false
+	}
+	releaseKeyValue := releaseNameKey(release.Title)
+	if releaseKeyValue != "" && releaseKeyValue == candidateKey {
+		return true
+	}
+	if release.normalizedTitle == "" {
+		prepareProwlarrRelease(&release)
+	}
+	if release.normalizedTitle == "" {
+		return false
+	}
+	releaseTitle, releaseYear := normalizeReleaseTitle(release.Title)
+	candidateTitle, candidateYear := normalizeReleaseTitle(candidate.Title + " " + candidate.Name)
+	if releaseTitle == "" || releaseTitle != candidateTitle {
+		return false
+	}
+	if releaseYear != 0 && candidateYear != 0 && releaseYear != candidateYear {
+		return false
+	}
+	// A title-only fallback is too weak on its own: Prowlarr returns many
+	// quality tiers of the same movie. Require both sizes to corroborate the
+	// match rather than confirming whichever tier the provider happened to
+	// return. (AltMount's own classification may treat unknown sizes as
+	// neutral; here a false confirmation would reorder playback.)
+	if release.Size <= 0 || candidate.FileSize <= 0 {
+		return false
+	}
+	return releaseSizesMatch(release.Size, candidate.FileSize)
+}
+
+// ClassifyCandidates sets SourceConfirmed on each candidate whose release the
+// cached Prowlarr snapshot already carries. This is the fallback signal used
+// when AltMount is not configured. The snapshot is a durable, operator-visible
+// record (persisted to the index file and refreshed by the scheduled monitor),
+// so this is not a live lookup and adds no provider round-trip to playback.
+func (c *prowlarrSearchClient) ClassifyCandidates(candidates []StreamCandidate) {
+	if c == nil || len(candidates) == 0 {
+		return
+	}
+	c.mu.Lock()
+	releases := append([]prowlarrRelease(nil), c.releases...)
+	c.mu.Unlock()
+	if len(releases) == 0 {
+		return
+	}
+	for i := range candidates {
+		for j := range releases {
+			if prowlarrReleaseConfirmsCandidate(releases[j], candidates[i]) {
+				candidates[i].SourceConfirmed = true
+				break
+			}
+		}
+	}
 }
 
 // Match returns true when any release in the cached search results
