@@ -86,6 +86,7 @@ type mediaMonitor struct {
 	items        map[string]monitoredMedia
 	registrar    virtualMediaRegistrar
 	prowlarr     *prowlarrSearchClient
+	altmount     *altmountStateClient
 	registered   map[string]struct{}
 	releaseStore *release.ReleaseStore
 }
@@ -137,6 +138,29 @@ func (m *mediaMonitor) configureProwlarr(urls, apiKey string, intervalMinutes in
 	m.mu.Unlock()
 	m.prowlarr.Configure(firstURL, apiKey, intervalMinutes)
 	return m.prowlarr.ConfigureIndexFile(indexFile)
+}
+
+// configureAltmount sets up the AltMount completed/failed state client. The
+// URL may be blank, in which case the client stays inert and Prowlarr remains
+// the known-good fallback.
+func (m *mediaMonitor) configureAltmount(baseURL, apiKey string, intervalMinutes int, indexFile string) error {
+	m.mu.Lock()
+	if m.altmount == nil {
+		m.altmount = newAltmountStateClient(nil)
+	}
+	m.mu.Unlock()
+	m.altmount.Configure(baseURL, apiKey, intervalMinutes)
+	return m.altmount.ConfigureIndexFile(indexFile)
+}
+
+// altmountClient returns the AltMount state client, or a new empty one.
+func (m *mediaMonitor) altmountClient() *altmountStateClient {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.altmount != nil {
+		return m.altmount
+	}
+	return newAltmountStateClient(nil)
 }
 
 // prowlarrClient returns the Prowlarr search client, or a new empty one for Validate.
@@ -855,6 +879,16 @@ func (s *runtimeServer) TestConnection(ctx context.Context, _ *pb.TestConnection
 			msg += fmt.Sprintf("\n%s", searchMsg)
 		}
 	}
+	if altmount := s.monitor.altmountClient(); altmount.URL() != "" {
+		start = time.Now()
+		stateMsg, stateErr := altmount.Validate(testCtx)
+		s.monitor.logger.Info("TestConnection phase", "phase", "altmount", "duration_ms", time.Since(start).Milliseconds())
+		if stateErr != nil {
+			msg += fmt.Sprintf("\nAltMount state: %s", stateErr.Error())
+		} else {
+			msg += fmt.Sprintf("\n%s", stateMsg)
+		}
+	}
 	s.monitor.logger.Info("TestConnection phase", "phase", "done", "total_ms", time.Since(totalStart).Milliseconds())
 	return &pb.TestConnectionResponse{Ok: true, Message: msg}, nil
 }
@@ -885,10 +919,16 @@ func (s *runtimeServer) Run(ctx context.Context, req *pb.RunScheduledTaskRequest
 	}
 	s.monitor.mu.Lock()
 	client := s.monitor.prowlarr
+	altmount := s.monitor.altmount
 	s.monitor.mu.Unlock()
 	if client != nil {
 		if err := client.refreshIfStale(ctx); err != nil {
 			s.monitor.logger.Warn("refresh Prowlarr search", "error", err)
+		}
+	}
+	if altmount != nil && altmount.URL() != "" {
+		if err := altmount.refreshIfStale(ctx); err != nil {
+			s.monitor.logger.Warn("refresh AltMount state", "error", err)
 		}
 	}
 	ready, pending := 0, 0

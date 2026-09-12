@@ -159,6 +159,12 @@ func (s *virtualStreamProvider) ResolveVirtualStream(ctx context.Context, req *p
 		if sourceType := strings.TrimSpace(candidate.SourceType); sourceType != "" {
 			candidateMetadata["source_type"] = sourceType
 		}
+		if candidate.SourceConfirmed {
+			// Advisory hint for hosts and diagnostics. The durable preference
+			// itself is the rank ordering applied by the resolver; the server
+			// reads ranks and ignores unknown metadata keys today.
+			candidateMetadata["source_confirmed"] = true
+		}
 		metadata, metadataErr := structpb.NewStruct(candidateMetadata)
 		if metadataErr != nil {
 			return nil, fmt.Errorf("build candidate metadata: %w", metadataErr)

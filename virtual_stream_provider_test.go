@@ -123,6 +123,39 @@ func TestResolveVirtualStreamSingleStreamWithFailoverResultsAll(t *testing.T) {
 	}
 }
 
+func TestResolveVirtualStreamMarksAndRanksConfirmedCandidates(t *testing.T) {
+	client := &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		body, _ := json.Marshal(map[string]any{"streams": []map[string]string{
+			{"name": "Release B", "title": "2160p B", "url": "https://provider.example/b.mkv"},
+			{"name": "Release A", "title": "1080p A", "url": "https://provider.example/a.mkv"},
+		}})
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(body)), Header: make(http.Header)}, nil
+	})}
+	resolver := &manifestStreamResolver{client: client}
+	resolver.Configure(resolverConfig{ManifestURL: "https://provider.example/manifest.json"})
+	resolver.SetCandidateClassifier(mapClassifier{confirmed: map[string]bool{"Release A": true}})
+	provider := &virtualStreamProvider{resolver: resolver}
+	resp, err := provider.ResolveVirtualStream(context.Background(), &pb.ResolveVirtualStreamRequest{
+		MediaType:   "movie",
+		ExternalIds: map[string]string{"imdb": "tt1234567"},
+	})
+	if err != nil {
+		t.Fatalf("ResolveVirtualStream() error = %v", err)
+	}
+	candidates := resp.GetResult().GetCandidates()
+	if len(candidates) != 2 {
+		t.Fatalf("candidates = %d, want 2", len(candidates))
+	}
+	// The completed release leads despite its lower resolution.
+	confirmed, ok := candidates[0].GetMetadata().GetFields()["source_confirmed"].GetKind().(*structpb.Value_BoolValue)
+	if !ok || !confirmed.BoolValue {
+		t.Fatalf("first candidate metadata source_confirmed = %v, want true", confirmed)
+	}
+	if candidates[0].GetMetadata().GetFields()["display_name"].GetStringValue() == "" {
+		t.Fatal("confirmed candidate should still carry a display name")
+	}
+}
+
 // A forced refresh with no excluded candidates is a genuine re-list: the host
 // is recovering from a dead stream (relay 502) and must get a fresh provider
 // answer even when the cache entry is younger than freshServeFloor.

@@ -57,6 +57,13 @@ type StreamCandidate struct {
 	RequestHeaders    map[string]string
 	QualityScore      int
 	OriginalIndex     int
+	// SourceConfirmed marks a candidate whose release the configured source of
+	// truth (AltMount's completed/imported state, or Prowlarr as a fallback)
+	// has already accepted. SourceFailed marks a release AltMount reports as
+	// failed. Both are provider-local derived state, never part of the Stremio
+	// payload, so a provider response cannot spoof them.
+	SourceConfirmed bool `json:"-"`
+	SourceFailed    bool `json:"-"`
 }
 
 func parseStreamDetails(s *StreamCandidate) {

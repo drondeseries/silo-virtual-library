@@ -130,6 +130,24 @@ func TestMatchWrongYearMisses(t *testing.T) {
 	}
 }
 
+func TestProwlarrClassifyCandidatesMarksKnownReleaseName(t *testing.T) {
+	cache := searchCacheFromTest(t, testSearchResults())
+	candidates := []StreamCandidate{
+		// Exact posting of a release Prowlarr already carries.
+		{Name: "The.Matrix.1999.2160p.WEB-DL.DDP.5.1.H.265-NOGRP", URL: "https://p.example/a.mkv"},
+		// Same movie, different release. Without corroborating sizes this must
+		// not be confirmed off a title-only match.
+		{Name: "The.Matrix.1999.720p.WEB-DL.Other-GRP", URL: "https://p.example/b.mkv"},
+	}
+	cache.ClassifyCandidates(candidates)
+	if !candidates[0].SourceConfirmed {
+		t.Fatal("exact Prowlarr release name should be confirmed")
+	}
+	if candidates[1].SourceConfirmed {
+		t.Fatal("a different release tier must not be confirmed without size corroboration")
+	}
+}
+
 func TestMatchEmptyResultsReturnsFalse(t *testing.T) {
 	cache := newProwlarrSearchClient(nil)
 	item := monitoredMedia{Title: "Obsession", Year: 2026, MediaType: "movie"}
@@ -535,5 +553,3 @@ func TestReleaseMatchesQualityPreservesCaching(t *testing.T) {
 		t.Fatal("expected releaseMatchesQuality to cache episodeKeys on caller release")
 	}
 }
-
-
