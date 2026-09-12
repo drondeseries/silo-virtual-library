@@ -684,7 +684,43 @@ func (c *manifestStreamResolver) getCandidates(ctx context.Context, virtualPath 
 	}
 
 	candidates, err := c.fetchProviderCandidates(ctx, config, generation, cacheKey, mediaType, mediaID)
+	if err == nil && len(candidates) == 0 {
+		// The provider flapped to an empty answer, but the store may have kept
+		// a positive entry that is still servable (fresh, or within stale
+		// grace). Serving it keeps playback alive; the empty answer is
+		// returned only once no positive entry is servable, which also
+		// preserves the escape-from-dead-candidates purpose of a forced
+		// re-list.
+		if cached, ok := c.servePositiveCachedCandidates(cacheKey, generation); ok {
+			c.debugLog("empty provider answer served; cached positive retained", cacheKey, len(cached))
+			return cached, mediaType, mediaID, nil
+		}
+	}
 	return candidates, mediaType, mediaID, err
+}
+
+// servePositiveCachedCandidates returns the key's non-empty cache entry when it
+// is still servable (fresh, or within candidateStaleGrace), and reports whether
+// one was found. It honors the cache generation check and refreshes lastAccess
+// the same way the direct read tiers do.
+func (c *manifestStreamResolver) servePositiveCachedCandidates(cacheKey string, generation uint64) ([]StreamCandidate, bool) {
+	now := time.Now()
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+	if c.cacheGeneration != generation {
+		return nil, false
+	}
+	entry, ok := c.cache[cacheKey]
+	if !ok || len(entry.candidates) == 0 {
+		return nil, false
+	}
+	if !now.Before(entry.expiresAt.Add(candidateStaleGrace)) {
+		return nil, false
+	}
+	candidates := cloneCandidates(entry.candidates)
+	entry.lastAccess = now
+	c.cache[cacheKey] = entry
+	return candidates, true
 }
 
 // joinFlight registers this caller as a synchronous provider fetcher if no

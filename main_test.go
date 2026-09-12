@@ -1039,6 +1039,63 @@ func TestForceRefreshBypassesStaleGrace(t *testing.T) {
 	}
 }
 
+// A forced re-list that hits the provider's empty flap must not fail while a
+// servable positive entry is still cached: the cache retained that positive
+// through the flap, so callers should get it instead of an empty answer.
+func TestForcedRefreshFallsBackToCachedPositiveOnEmptyFlap(t *testing.T) {
+	var served atomic.Int32
+	resolver, calls := swrTestResolver(t, func(*http.Request) (*http.Response, error) {
+		if served.Add(1) == 1 {
+			return stremioBody(), nil
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"streams":[]}`)), Header: make(http.Header)}, nil
+	})
+	key := "movie|tt1000005"
+	path := "virtual://movie/tt1000005"
+
+	first, _, _, err := resolver.GetCandidates(context.Background(), path)
+	if err != nil || len(first) != 1 {
+		t.Fatalf("initial GetCandidates = %#v, err = %v; want one positive candidate", first, err)
+	}
+	// Age the entry past the forced-lookup floor so the forced call below
+	// actually re-lists from the provider, but keep its TTL live.
+	backdateFetchedAt(t, resolver, key, freshServeFloor+time.Second)
+
+	candidates, _, _, err := resolver.GetCandidatesFresh(context.Background(), path)
+	if err != nil {
+		t.Fatalf("forced refresh error: %v", err)
+	}
+	if len(candidates) != 1 || candidates[0].Name != "1080p" {
+		t.Fatalf("forced refresh on empty flap = %#v, want the cached positive", candidates)
+	}
+	if got := atomic.LoadInt32(calls); got != 2 {
+		t.Fatalf("provider calls = %d, want 2 (initial + forced)", got)
+	}
+}
+
+// Once the cached positive is past stale grace it is no longer servable, so a
+// forced re-list must return the provider's empty answer — the escape-from-
+// dead-candidates semantics a forced refresh exists for.
+func TestForcedRefreshUnboundedPastGraceReturnsEmptyFlap(t *testing.T) {
+	resolver, calls := swrTestResolver(t, func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"streams":[]}`)), Header: make(http.Header)}, nil
+	})
+	key := "movie|tt1000006"
+	resolver.storeCandidateCache(key, []StreamCandidate{{Name: "ancient", URL: "https://provider.example/old.mkv"}},
+		time.Now().Add(-candidateStaleGrace-time.Minute), time.Now().Add(-30*time.Minute), resolver.cacheGeneration)
+
+	candidates, _, _, err := resolver.GetCandidatesFreshUnbounded(context.Background(), "virtual://movie/tt1000006")
+	if err != nil {
+		t.Fatalf("forced unbounded refresh error: %v", err)
+	}
+	if len(candidates) != 0 {
+		t.Fatalf("forced refresh past grace = %#v, want the empty provider answer", candidates)
+	}
+	if got := atomic.LoadInt32(calls); got != 1 {
+		t.Fatalf("provider calls = %d, want 1", got)
+	}
+}
+
 func TestConcurrentStaleLookupsTriggerSingleRefresh(t *testing.T) {
 	resolver, calls := swrTestResolver(t, func(*http.Request) (*http.Response, error) {
 		time.Sleep(80 * time.Millisecond)
