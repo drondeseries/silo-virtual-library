@@ -1,6 +1,6 @@
 {
-  "plugin_id": "com.randrini.silo-virtual-library",
-  "version": "0.4.108",
+  "plugin_id": "com.drondeseries.silo-virtual-library",
+  "version": "0.4.110",
   "silo_api_version": "v1",
   "capabilities": [
     {
@@ -107,7 +107,7 @@
       "key": "streaming",
       "title": "streaming provider",
       "description": "Connection to the configured streaming provider Stremio addon.",
-      "json_schema": "{\"type\":\"object\",\"properties\":{\"manifest_url\":{\"type\":\"string\",\"format\":\"uri\",\"maxLength\":4096},\"movie_library_id\":{\"type\":\"integer\",\"minimum\":1,\"default\":1},\"series_library_id\":{\"type\":\"integer\",\"minimum\":1,\"default\":2},\"tmdb_api_key\":{\"type\":\"string\",\"maxLength\":4096},\"monitor_file\":{\"type\":\"string\",\"maxLength\":4096,\"default\":\".silo-virtual-library-monitored.json\"},\"allow_insecure_http\":{\"type\":\"boolean\",\"default\":false},\"schedule_refresh_minutes\":{\"type\":\"integer\",\"minimum\":30,\"maximum\":10080,\"default\":360},\"cache_ttl_minutes\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":10080,\"default\":10},\"enable_quality_profiles\":{\"type\":\"boolean\",\"default\":false},\"custom_format_preset\":{\"type\":\"string\",\"enum\":[\"custom\",\"english-original\",\"english-strict\",\"original-or-english\",\"clean-quality\",\"audio-hd\",\"repack-proper\",\"top-web-sources\",\"anime-enhanced\",\"web-tier-01\",\"web-tier-02\",\"remux-tier-01\",\"remux-tier-02\",\"trash-recommended\"],\"default\":\"custom\"},\"quality_profiles\":{\"type\":\"array\",\"maxItems\":10,\"items\":{\"type\":\"object\",\"properties\":{\"label\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":128},\"resolution\":{\"type\":\"string\",\"maxLength\":64},\"include_regex\":{\"type\":\"string\",\"maxLength\":1024},\"exclude_regex\":{\"type\":\"string\",\"maxLength\":1024},\"preferred_order\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":10000},\"codec_video\":{\"type\":\"string\",\"maxLength\":64},\"codec_audio\":{\"type\":\"string\",\"maxLength\":64},\"hdr\":{\"type\":\"string\",\"maxLength\":64},\"exclude_hdr\":{\"type\":\"string\",\"maxLength\":64}},\"required\":[\"label\"],\"additionalProperties\":false}},\"custom_formats\":{\"type\":\"array\",\"maxItems\":50,\"items\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":128},\"regex\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":1024},\"score\":{\"type\":\"integer\",\"minimum\":-10000,\"maximum\":10000},\"reject\":{\"type\":\"boolean\",\"default\":false}},\"required\":[\"name\",\"regex\"],\"additionalProperties\":false}},\"fallback_to_any_stream\":{\"type\":\"boolean\",\"default\":false},\"indexer_rss_url\":{\"type\":\"string\",\"format\":\"uri\",\"maxLength\":4096,\"description\":\"Your Prowlarr base URL (e.g. https://prowlarr.example.com). Searches all enabled indexers in one request.\"},\"indexer_api_key\":{\"type\":\"string\",\"maxLength\":4096,\"description\":\"API key for your Prowlarr instance. Leave blank if not required.\"},\"indexer_rss_check_minutes\":{\"type\":\"integer\",\"minimum\":15,\"maximum\":10080,\"default\":15,\"description\":\"How often to check Prowlarr for new releases. Minimum 15 minutes.\"},\"quality_preset\":{\"type\":\"string\",\"enum\":[\"custom\",\"balanced\",\"4k-hdr\",\"4k-dolby-vision\",\"no-dolby-vision\",\"no-hdr\",\"compatibility\",\"anime\"],\"default\":\"custom\"},\"prowlarr_index_file\":{\"type\":\"string\",\"maxLength\":4096,\"default\":\".silo-virtual-library-prowlarr-index.json\"},\"altmount_url\":{\"type\":\"string\",\"format\":\"uri\",\"maxLength\":4096},\"altmount_api_key\":{\"type\":\"string\",\"maxLength\":4096},\"altmount_check_minutes\":{\"type\":\"integer\",\"minimum\":5,\"maximum\":10080,\"default\":15},\"altmount_state_file\":{\"type\":\"string\",\"maxLength\":4096,\"default\":\".silo-virtual-library-altmount-state.json\"},\"single_stream_with_failover\":{\"type\":\"boolean\",\"default\":true}},\"required\":[\"manifest_url\"],\"additionalProperties\":false}",
+      "json_schema": "{\"type\": \"object\", \"properties\": {\"manifest_url\": {\"type\": \"string\", \"format\": \"uri\", \"maxLength\": 4096}, \"movie_library_id\": {\"type\": \"integer\", \"minimum\": 1, \"default\": 1}, \"series_library_id\": {\"type\": \"integer\", \"minimum\": 1, \"default\": 2}, \"tmdb_api_key\": {\"type\": \"string\", \"maxLength\": 4096}, \"monitor_file\": {\"type\": \"string\", \"maxLength\": 4096, \"default\": \".silo-virtual-library-monitored.json\"}, \"allow_insecure_http\": {\"type\": \"boolean\", \"default\": false}, \"schedule_refresh_minutes\": {\"type\": \"integer\", \"minimum\": 30, \"maximum\": 10080, \"default\": 360}, \"cache_ttl_minutes\": {\"type\": \"integer\", \"minimum\": 1, \"maximum\": 10080, \"default\": 10}, \"enable_quality_profiles\": {\"type\": \"boolean\", \"default\": false}, \"custom_format_preset\": {\"type\": \"string\", \"enum\": [\"custom\", \"english-original\", \"english-strict\", \"original-or-english\", \"clean-quality\", \"audio-hd\", \"repack-proper\", \"top-web-sources\", \"anime-enhanced\", \"web-tier-01\", \"web-tier-02\", \"remux-tier-01\", \"remux-tier-02\", \"trash-recommended\"], \"default\": \"custom\"}, \"quality_profiles\": {\"type\": \"array\", \"maxItems\": 10, \"items\": {\"type\": \"object\", \"properties\": {\"label\": {\"type\": \"string\", \"minLength\": 1, \"maxLength\": 128}, \"resolution\": {\"type\": \"string\", \"maxLength\": 64}, \"include_regex\": {\"type\": \"string\", \"maxLength\": 1024}, \"exclude_regex\": {\"type\": \"string\", \"maxLength\": 1024}, \"preferred_order\": {\"type\": \"integer\", \"minimum\": 0, \"maximum\": 10000}, \"codec_video\": {\"type\": \"string\", \"maxLength\": 64}, \"codec_audio\": {\"type\": \"string\", \"maxLength\": 64}, \"hdr\": {\"type\": \"string\", \"maxLength\": 64}, \"exclude_hdr\": {\"type\": \"string\", \"maxLength\": 64}}, \"required\": [\"label\"], \"additionalProperties\": false}}, \"custom_formats\": {\"type\": \"array\", \"maxItems\": 50, \"items\": {\"type\": \"object\", \"properties\": {\"name\": {\"type\": \"string\", \"minLength\": 1, \"maxLength\": 128}, \"regex\": {\"type\": \"string\", \"minLength\": 1, \"maxLength\": 1024}, \"score\": {\"type\": \"integer\", \"minimum\": -10000, \"maximum\": 10000}, \"reject\": {\"type\": \"boolean\", \"default\": false}}, \"required\": [\"name\", \"regex\"], \"additionalProperties\": false}}, \"fallback_to_any_stream\": {\"type\": \"boolean\", \"default\": false}, \"indexer_rss_url\": {\"type\": \"string\", \"format\": \"uri\", \"maxLength\": 4096, \"description\": \"Your Prowlarr base URL (e.g. https://prowlarr.example.com). Searches all enabled indexers in one request.\"}, \"indexer_api_key\": {\"type\": \"string\", \"maxLength\": 4096, \"description\": \"API key for your Prowlarr instance. Leave blank if not required.\"}, \"indexer_rss_check_minutes\": {\"type\": \"integer\", \"minimum\": 15, \"maximum\": 10080, \"default\": 15, \"description\": \"How often to check Prowlarr for new releases. Minimum 15 minutes.\"}, \"quality_preset\": {\"type\": \"string\", \"enum\": [\"custom\", \"balanced\", \"4k-hdr\", \"4k-dolby-vision\", \"no-dolby-vision\", \"no-hdr\", \"compatibility\", \"anime\"], \"default\": \"custom\"}, \"prowlarr_index_file\": {\"type\": \"string\", \"maxLength\": 4096, \"default\": \".silo-virtual-library-prowlarr-index.json\"}, \"single_stream_with_failover\": {\"type\": \"boolean\", \"default\": true}, \"altmount_url\": {\"type\": \"string\", \"format\": \"uri\", \"maxLength\": 4096}, \"altmount_api_key\": {\"type\": \"string\", \"maxLength\": 4096}, \"altmount_check_minutes\": {\"type\": \"integer\", \"minimum\": 5, \"maximum\": 10080, \"default\": 15}, \"altmount_state_file\": {\"type\": \"string\", \"maxLength\": 4096, \"default\": \".silo-virtual-library-altmount-state.json\"}}, \"required\": [\"manifest_url\"], \"additionalProperties\": false}",
       "required": true,
       "admin_form": {
         "fields": [
@@ -164,7 +164,9 @@
             "show_when": [
               {
                 "field": "enable_quality_profiles",
-                "equals": ["true"]
+                "equals": [
+                  "true"
+                ]
               }
             ],
             "options": [
@@ -210,7 +212,9 @@
             "show_when": [
               {
                 "field": "enable_quality_profiles",
-                "equals": ["true"]
+                "equals": [
+                  "true"
+                ]
               }
             ],
             "options": [
@@ -281,11 +285,15 @@
             "show_when": [
               {
                 "field": "enable_quality_profiles",
-                "equals": ["true"]
+                "equals": [
+                  "true"
+                ]
               },
               {
                 "field": "quality_preset",
-                "equals": ["custom"]
+                "equals": [
+                  "custom"
+                ]
               }
             ],
             "placeholder": "[\n  {\"label\": \"4K DV\",  \"resolution\": \"2160p\", \"hdr\": \"dv\"},\n  {\"label\": \"1080p\",  \"resolution\": \"1080p\"},\n  {\"label\": \"No Cam\", \"exclude_regex\": \"(?i)cam|ts|hdcam\"}\n]"
@@ -299,11 +307,15 @@
             "show_when": [
               {
                 "field": "enable_quality_profiles",
-                "equals": ["true"]
+                "equals": [
+                  "true"
+                ]
               },
               {
                 "field": "custom_format_preset",
-                "equals": ["custom"]
+                "equals": [
+                  "custom"
+                ]
               }
             ],
             "placeholder": "[\n  {\"name\": \"English\", \"regex\": \"(?i)\\\\b(?:eng|english)\\\\b\", \"score\": 100},\n  {\"name\": \"German\", \"regex\": \"(?i)\\\\b(?:deu|ger|german|deutsch)\\\\b\", \"reject\": true}\n]"
@@ -316,7 +328,9 @@
             "show_when": [
               {
                 "field": "enable_quality_profiles",
-                "equals": ["true"]
+                "equals": [
+                  "true"
+                ]
               }
             ]
           },
@@ -350,6 +364,33 @@
             "placeholder": ".silo-virtual-library-prowlarr-index.json"
           },
           {
+            "key": "monitor_file",
+            "label": "Monitored Queue File",
+            "description": "File path for persisting the monitored media queue. Defaults to .silo-virtual-library-monitored.json in the plugin work directory.",
+            "control": "ADMIN_FORM_CONTROL_TEXT",
+            "placeholder": ".silo-virtual-library-monitored.json"
+          },
+          {
+            "key": "cache_ttl_minutes",
+            "label": "Candidate Cache TTL (minutes)",
+            "description": "How long stream candidates are cached before re-fetching from the provider (1–10080 minutes). Lower = fresher results, higher = faster playback.",
+            "control": "ADMIN_FORM_CONTROL_NUMBER",
+            "placeholder": "10"
+          },
+          {
+            "key": "schedule_refresh_minutes",
+            "label": "Schedule Refresh Interval (minutes)",
+            "description": "How often TVmaze release schedules are rechecked for upcoming episodes (30-10080 minutes). Applies after plugin restart.",
+            "control": "ADMIN_FORM_CONTROL_NUMBER",
+            "placeholder": "360"
+          },
+          {
+            "key": "allow_insecure_http",
+            "label": "Allow local HTTP",
+            "description": "Allow plain HTTP only for localhost, .local, single-label Docker/service names, or private IPs. HTTPS remains the default.",
+            "control": "ADMIN_FORM_CONTROL_SWITCH"
+          },
+          {
             "key": "altmount_url",
             "label": "AltMount URL",
             "description": "Optional AltMount base URL (e.g. http://altmount:8080). When set, AltMount's completed/failed import history is the authoritative known-good signal and releases it reports as failed are not offered for playback.",
@@ -377,33 +418,6 @@
             "description": "Optional local cache of AltMount completed/failed releases. Survives restarts so known-good releases stay preferred.",
             "control": "ADMIN_FORM_CONTROL_TEXT",
             "placeholder": ".silo-virtual-library-altmount-state.json"
-          },
-          {
-            "key": "monitor_file",
-            "label": "Monitored Queue File",
-            "description": "File path for persisting the monitored media queue. Defaults to .silo-virtual-library-monitored.json in the plugin work directory.",
-            "control": "ADMIN_FORM_CONTROL_TEXT",
-            "placeholder": ".silo-virtual-library-monitored.json"
-          },
-          {
-            "key": "cache_ttl_minutes",
-            "label": "Candidate Cache TTL (minutes)",
-            "description": "How long stream candidates are cached before re-fetching from the provider (1–10080 minutes). Lower = fresher results, higher = faster playback.",
-            "control": "ADMIN_FORM_CONTROL_NUMBER",
-            "placeholder": "10"
-          },
-          {
-            "key": "schedule_refresh_minutes",
-            "label": "Schedule Refresh Interval (minutes)",
-            "description": "How often TVmaze release schedules are rechecked for upcoming episodes (30-10080 minutes). Applies after plugin restart.",
-            "control": "ADMIN_FORM_CONTROL_NUMBER",
-            "placeholder": "360"
-          },
-          {
-            "key": "allow_insecure_http",
-            "label": "Allow local HTTP",
-            "description": "Allow plain HTTP only for localhost, .local, single-label Docker/service names, or private IPs. HTTPS remains the default.",
-            "control": "ADMIN_FORM_CONTROL_SWITCH"
           }
         ],
         "sections": [
@@ -450,7 +464,22 @@
           }
         ],
         "submit_label": "Save streaming provider connection"
-      }
+      },
+      "sections": [
+        {
+          "key": "altmount",
+          "title": "AltMount Completed Releases",
+          "description": "Use AltMount completed history as the known-good source. Completed releases are preferred and retained; failed ones are dropped.",
+          "collapsible": true,
+          "collapsed_default": true,
+          "field_keys": [
+            "altmount_url",
+            "altmount_api_key",
+            "altmount_check_minutes",
+            "altmount_state_file"
+          ]
+        }
+      ]
     }
   ]
 }

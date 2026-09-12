@@ -2,8 +2,8 @@
   "plugins": [
     {
       "manifest": {
-        "plugin_id": "com.randrini.silo-virtual-library",
-        "version": "0.4.108",
+        "plugin_id": "com.drondeseries.silo-virtual-library",
+        "version": "0.4.110",
         "silo_api_version": "v1",
         "capabilities": [
           {
@@ -442,20 +442,20 @@
           }
         ]
       },
-      "repo_url": "https://github.com/randrini/silo-virtual-library",
-      "checksums_url": "https://github.com/randrini/silo-virtual-library/releases/download/v0.4.108/checksums.txt",
+      "repo_url": "https://github.com/drondeseries/silo-virtual-library",
+      "checksums_url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.110/checksums.txt",
       "binaries": {
         "linux/amd64": {
-          "url": "https://github.com/randrini/silo-virtual-library/releases/download/v0.4.108/plugin-linux-amd64",
-          "checksum": "f21fc4d036946c84542aa2754c68feb40a9ac5b33563c88cd44fa90156201a67"
+          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.110/plugin-linux-amd64",
+          "checksum": "99d43fc166555ebf181987c32fd2026170f898c300b08adbba7050b564d9e9dd"
         },
         "linux/arm64": {
-          "url": "https://github.com/randrini/silo-virtual-library/releases/download/v0.4.108/plugin-linux-arm64",
-          "checksum": "2f60be7208e8ffa11b3cea3e7953938286dc79679aed08289dbaf052fbaffb0a"
+          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.110/plugin-linux-arm64",
+          "checksum": "d712783f2352488c3171b7d83b82f3a8ad0df1ef3dfd3267684ce71c438f87be"
         },
         "darwin/arm64": {
-          "url": "https://github.com/randrini/silo-virtual-library/releases/download/v0.4.108/plugin-darwin-arm64",
-          "checksum": "699c0b8849cdc39eca3b64986851a4fe0a36cddd5c1cb48554c4ec844f26a24e"
+          "url": "https://github.com/drondeseries/silo-virtual-library/releases/download/v0.4.110/plugin-darwin-arm64",
+          "checksum": "f7929b04d27e7ebe93b61ea829decbe8dda3e0a23491c6c2ec706d75f9ef4da9"
         }
       }
     }
