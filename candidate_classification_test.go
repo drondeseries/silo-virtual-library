@@ -5,10 +5,13 @@ import (
 	"testing"
 )
 
-// mapClassifier is a deterministic candidateClassifier for ordering tests.
+// mapClassifier is a deterministic candidateClassifier for ordering tests. It
+// mimics the production classifiers: guids attaches the stable release GUID
+// each Prowlarr-confirmed candidate would carry, so dedup can key on it.
 type mapClassifier struct {
 	confirmed map[string]bool
 	failed    map[string]bool
+	guids     map[string]string
 }
 
 func (m mapClassifier) ClassifyCandidates(candidates []StreamCandidate) {
@@ -18,6 +21,9 @@ func (m mapClassifier) ClassifyCandidates(candidates []StreamCandidate) {
 		}
 		if m.failed[candidates[i].Name] {
 			candidates[i].SourceFailed = true
+		}
+		if guid := m.guids[candidates[i].Name]; guid != "" {
+			candidates[i].SourceGUID = guid
 		}
 	}
 }
@@ -132,6 +138,65 @@ func TestSelectCandidatesDedupKeepsConfirmedVariant(t *testing.T) {
 	}
 	if got[0].Name != "confirmed-variant" || !got[0].SourceConfirmed {
 		t.Fatalf("keeper = %q (confirmed %t), want the confirmed variant", got[0].Name, got[0].SourceConfirmed)
+	}
+}
+
+// A non-empty VideoHash is the strongest identity: candidates that share it
+// collapse even when their display names and sizes differ.
+func TestSelectCandidatesDedupesByVideoHash(t *testing.T) {
+	resolver := &manifestStreamResolver{}
+	resolver.Configure(resolverConfig{})
+	candidates := []StreamCandidate{
+		{Name: "variant-a", Title: "Movie.2024.1080p.WEB-DL.x264-GRP", FileSize: 5_000_000_000, OriginalIndex: 0, URL: "https://x/a.mkv"},
+		{Name: "variant-b", Title: "Movie.2024.2160p.BluRay.x265-OTHER", FileSize: 9_000_000_000, OriginalIndex: 1, URL: "https://x/b.mkv"},
+	}
+	candidates[0].BehaviorHints.VideoHash = "ABCDEF0123456789"
+	candidates[1].BehaviorHints.VideoHash = "abcdef0123456789"
+	got := resolver.SelectCandidates("virtual://movie/tt1", candidates)
+	if len(got) != 1 {
+		t.Fatalf("candidates = %d, want 1 collapsed by video hash", len(got))
+	}
+}
+
+// Two candidates the classifier tied to the same indexed release GUID collapse
+// even with different names and sizes: per the source of truth, a shared GUID
+// is enough to call them one release.
+func TestSelectCandidatesDedupesByReleaseGUID(t *testing.T) {
+	resolver := &manifestStreamResolver{}
+	resolver.Configure(resolverConfig{})
+	resolver.SetCandidateClassifier(mapClassifier{confirmed: map[string]bool{
+		"variant-a": true,
+		"variant-b": true,
+	}, guids: map[string]string{
+		"variant-a": "guid-abc123",
+		"variant-b": "guid-abc123",
+	}})
+	candidates := []StreamCandidate{
+		{Name: "variant-a", Title: "Movie.2024.1080p.WEB-DL.x264-GRP", FileSize: 5_000_000_000, Resolution: "1080p", OriginalIndex: 0, URL: "https://x/a.mkv"},
+		{Name: "variant-b", Title: "Movie.2024.2160p.BluRay.x265-OTHER", FileSize: 9_000_000_000, Resolution: "2160p", OriginalIndex: 1, URL: "https://x/b.mkv"},
+	}
+	got := resolver.SelectCandidates("virtual://movie/tt1", candidates)
+	if len(got) != 1 {
+		t.Fatalf("candidates = %d, want 1 collapsed by release GUID despite differing size/profile", len(got))
+	}
+}
+
+// Distinct GUIDs describe distinct releases and must not collapse, even when
+// names, sizes, and profiles are otherwise identical.
+func TestSelectCandidatesKeepsDistinctReleaseGUIDs(t *testing.T) {
+	resolver := &manifestStreamResolver{}
+	resolver.Configure(resolverConfig{})
+	resolver.SetCandidateClassifier(mapClassifier{guids: map[string]string{
+		"variant-a": "guid-abc123",
+		"variant-b": "guid-def456",
+	}})
+	candidates := []StreamCandidate{
+		{Name: "variant-a", Title: "Movie.2024.1080p.WEB-DL.x264-GRP", FileSize: 5_000_000_000, OriginalIndex: 0, URL: "https://x/a.mkv"},
+		{Name: "variant-b", Title: "Movie.2024.1080p.WEB-DL.x264-GRP", FileSize: 5_000_000_000, OriginalIndex: 1, URL: "https://x/b.mkv"},
+	}
+	got := resolver.SelectCandidates("virtual://movie/tt1", candidates)
+	if len(got) != 2 {
+		t.Fatalf("candidates = %d, want distinct GUIDs kept separate", len(got))
 	}
 }
 

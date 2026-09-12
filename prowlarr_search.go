@@ -551,6 +551,7 @@ func (c *prowlarrSearchClient) ClassifyCandidates(candidates []StreamCandidate) 
 		for j := range releases {
 			if prowlarrReleaseConfirmsCandidate(releases[j], candidates[i]) {
 				candidates[i].SourceConfirmed = true
+				candidates[i].SourceGUID = releases[j].GUID
 				break
 			}
 		}

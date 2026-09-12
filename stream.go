@@ -64,6 +64,13 @@ type StreamCandidate struct {
 	// payload, so a provider response cannot spoof them.
 	SourceConfirmed bool `json:"-"`
 	SourceFailed    bool `json:"-"`
+	// SourceGUID is the stable GUID of the indexed release the classifier tied
+	// this candidate to (Prowlarr exposes one per result). It is the dedup
+	// identity when the provider carries no content hash, so two variants of
+	// one release collapse even when their display names or sizes differ.
+	// Like the flags above it is provider-local derived state and never part
+	// of the Stremio payload.
+	SourceGUID string `json:"-"`
 }
 
 func parseStreamDetails(s *StreamCandidate) {

@@ -264,12 +264,30 @@ func dropFailedCandidates(candidates []StreamCandidate) []StreamCandidate {
 }
 
 // candidateDedupKey returns the stable identity shared by provider candidates
-// that describe the same playable release. Multi-file torrents surface one
-// candidate per file, with result IDs differing only by an appended file
-// index; they share a normalized release name, file size, and quality profile.
-// An empty key means the candidate carries too little identity to collapse and
-// is always kept.
+// that describe the same playable release, in tiers from strongest to weakest.
+//
+// A stable external identity beats any name/size/profile heuristic: a non-empty
+// VideoHash identifies the actual video content, and a SourceGUID identifies
+// the indexed release the classifier matched. The maintainer's rule is that a
+// shared GUID is enough to call two candidates one release, so the GUID tier
+// deliberately ignores name, size, and quality profile differences — the same
+// release re-offered with a different file list is still one release.
+//
+// Only when neither identity is available does it fall back to the release
+// name plus exact file size and quality profile. That tier collapses per-file
+// torrent variants (one candidate per contained file) while keeping genuinely
+// distinct releases apart. An empty key means the candidate carries too little
+// identity to collapse and is always kept.
 func candidateDedupKey(candidate StreamCandidate) string {
+	// Tier 1a: provider-supplied content hash.
+	if hash := strings.ToLower(strings.TrimSpace(candidate.BehaviorHints.VideoHash)); hash != "" {
+		return "vidhash:" + hash
+	}
+	// Tier 1b: GUID of the indexed release the classifier tied us to.
+	if guid := strings.TrimSpace(candidate.SourceGUID); guid != "" {
+		return "guid:" + guid
+	}
+	// Tier 2: name + exact size + quality profile.
 	releaseKey := candidateReleaseName(candidate)
 	if releaseKey == "" {
 		return ""
