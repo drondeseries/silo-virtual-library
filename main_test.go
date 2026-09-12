@@ -151,6 +151,66 @@ func TestNegativeCacheServesEmptyResultsWithoutRefetching(t *testing.T) {
 	}
 }
 
+// The upstream provider flaps between a full list and an empty answer. An
+// empty answer must not evict a still-servable positive entry: doing so makes
+// every resolve inside the negative TTL report "no streams" even though a good
+// list was cached moments earlier.
+func TestEmptyAnswerKeepsFreshPositiveCandidateCache(t *testing.T) {
+	resolver := &manifestStreamResolver{}
+	resolver.Configure(resolverConfig{})
+	resolver.mu.RLock()
+	generation := resolver.generation
+	resolver.mu.RUnlock()
+	key := "movie|tt3000001"
+	now := time.Now()
+	resolver.storeCandidateCache(key, []StreamCandidate{{Name: "good-1080p", URL: "https://provider.example/a.mkv"}},
+		now.Add(time.Hour), now, generation)
+
+	resolver.storeCandidateCache(key, nil, now.Add(time.Hour), now.Add(time.Second), generation)
+
+	resolver.cacheMu.Lock()
+	entry, ok := resolver.cache[key]
+	resolver.cacheMu.Unlock()
+	if !ok {
+		t.Fatal("positive cache entry disappeared after an empty answer")
+	}
+	if len(entry.candidates) != 1 || entry.candidates[0].Name != "good-1080p" {
+		t.Fatalf("empty answer replaced the positive entry: %#v", entry.candidates)
+	}
+	if !entry.expiresAt.After(now) {
+		t.Fatalf("positive entry expiry = %v, want a live TTL", entry.expiresAt)
+	}
+}
+
+// Once the positive entry leaves stale grace it is no longer servable, so the
+// empty answer installs the short negative entry as before.
+func TestEmptyAnswerReplacesPositiveCachePastStaleGrace(t *testing.T) {
+	resolver := &manifestStreamResolver{}
+	resolver.Configure(resolverConfig{})
+	resolver.mu.RLock()
+	generation := resolver.generation
+	resolver.mu.RUnlock()
+	key := "movie|tt3000002"
+	now := time.Now()
+	resolver.storeCandidateCache(key, []StreamCandidate{{Name: "ancient", URL: "https://provider.example/old.mkv"}},
+		now.Add(-candidateStaleGrace-time.Minute), now.Add(-time.Hour), generation)
+
+	resolver.storeCandidateCache(key, nil, now.Add(time.Hour), now, generation)
+
+	resolver.cacheMu.Lock()
+	entry, ok := resolver.cache[key]
+	resolver.cacheMu.Unlock()
+	if !ok {
+		t.Fatal("negative cache entry missing")
+	}
+	if len(entry.candidates) != 0 {
+		t.Fatalf("past-grace positive entry not replaced: %#v", entry.candidates)
+	}
+	if got, want := entry.expiresAt.Sub(now), negativeCacheTTL; got != want {
+		t.Fatalf("negative expiry = %v, want %v", got, want)
+	}
+}
+
 func TestConfigureDiscardsInFlightCandidateCacheStore(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})

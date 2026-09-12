@@ -103,9 +103,9 @@ func TestSelectCandidatesDedupesSameReleaseVariants(t *testing.T) {
 	}
 }
 
-// Same release name but a different size, a different release name, or a
-// different quality profile describe distinct playable releases and must not be
-// collapsed.
+// Same release name but a different size or a different release name describe
+// distinct playable releases and must not be collapsed. The quality profile is
+// deliberately not part of the fallback identity (see the collapse test below).
 func TestSelectCandidatesKeepsDistinctReleases(t *testing.T) {
 	resolver := &manifestStreamResolver{}
 	resolver.Configure(resolverConfig{})
@@ -113,12 +113,62 @@ func TestSelectCandidatesKeepsDistinctReleases(t *testing.T) {
 		{Name: "same-name-diff-size", Title: "Movie.2024.1080p.WEB-DL.x264-GRP", FileSize: 5_000_000_000, OriginalIndex: 0, URL: "https://x/a.mkv"},
 		{Name: "other-size", Title: "Movie.2024.1080p.WEB-DL.x264-GRP", FileSize: 6_000_000_000, OriginalIndex: 1, URL: "https://x/b.mkv"},
 		{Name: "other-name", Title: "Movie.2024.2160p.WEB-DL.x264-OTHER", FileSize: 5_000_000_000, OriginalIndex: 2, URL: "https://x/c.mkv"},
-		{Name: "profile-1080p", Title: "Movie.2024.WEB-DL.x264-GRP", Resolution: "1080p", FileSize: 5_000_000_000, OriginalIndex: 3, URL: "https://x/d.mkv"},
-		{Name: "profile-2160p", Title: "Movie.2024.WEB-DL.x264-GRP", Resolution: "2160p", FileSize: 5_000_000_000, OriginalIndex: 4, URL: "https://x/e.mkv"},
 	}
 	got := resolver.SelectCandidates("virtual://movie/tt1", candidates)
-	if len(got) != 5 {
-		t.Fatalf("candidates = %d, want all 5 distinct releases retained", len(got))
+	if len(got) != 3 {
+		t.Fatalf("candidates = %d, want all 3 distinct releases retained", len(got))
+	}
+}
+
+// One release re-offered per file can parse a different resolution/codec/HDR
+// from its differing result ID, but a shared release name and size are enough
+// to call it one release: the fallback identity ignores the quality profile.
+func TestSelectCandidatesDedupesSameNameAndSizeAcrossProfile(t *testing.T) {
+	resolver := &manifestStreamResolver{}
+	resolver.Configure(resolverConfig{})
+	candidates := []StreamCandidate{
+		{Name: "profile-1080p", Title: "Movie.2024.WEB-DL.x264-GRP", Resolution: "1080p", CodecAudio: "aac", FileSize: 5_000_000_000, OriginalIndex: 0, URL: "https://x/d.mkv"},
+		{Name: "profile-1080p-ac3", Title: "Movie.2024.WEB-DL.x264-GRP", Resolution: "1080p", CodecAudio: "ac3", FileSize: 5_000_000_000, OriginalIndex: 1, URL: "https://x/e.mkv"},
+		{Name: "profile-2160p", Title: "Movie.2024.WEB-DL.x264-GRP", Resolution: "2160p", HDR: "hdr", FileSize: 5_000_000_000, OriginalIndex: 2, URL: "https://x/f.mkv"},
+	}
+	got := resolver.SelectCandidates("virtual://movie/tt1", candidates)
+	if len(got) != 1 {
+		t.Fatalf("candidates = %d, want 1 collapsed release despite differing profiles", len(got))
+	}
+}
+
+// behaviorHints.filename names a single file inside a multi-file release, so
+// per-file variants of one torrent must still collapse on their shared
+// release-title line and size.
+func TestSelectCandidatesDedupesPerFileFilenames(t *testing.T) {
+	resolver := &manifestStreamResolver{}
+	resolver.Configure(resolverConfig{})
+	release := "Show.S01E01.1080p.WEB-DL.x264-GRP"
+	candidates := []StreamCandidate{
+		{Name: "AltMount FHD", Title: release, FileSize: 1_500_000_000, OriginalIndex: 0, URL: "https://provider.example/play/episode"},
+		{Name: "AltMount FHD", Title: release, FileSize: 1_500_000_000, OriginalIndex: 1, URL: "https://provider.example/play/sample"},
+	}
+	candidates[0].BehaviorHints.Filename = release + ".mkv"
+	candidates[1].BehaviorHints.Filename = release + ".sample.mkv"
+	got := resolver.SelectCandidates("virtual://movie/tt1", candidates)
+	if len(got) != 1 {
+		t.Fatalf("candidates = %d, want 1 after collapsing per-file filenames", len(got))
+	}
+}
+
+// When only the provider result ID is available, the trailing per-file index
+// (`<hash>` vs `<hash>-43`) is not part of the release identity.
+func TestSelectCandidatesDedupesPerFileResultIDs(t *testing.T) {
+	resolver := &manifestStreamResolver{}
+	resolver.Configure(resolverConfig{})
+	hash := "cfffcc1ba480996d1c0323e4"
+	candidates := []StreamCandidate{
+		{FileSize: 1_500_000_000, OriginalIndex: 0, URL: "https://provider.example/play/" + hash},
+		{FileSize: 1_500_000_000, OriginalIndex: 1, URL: "https://provider.example/play/" + hash + "-43"},
+	}
+	got := resolver.SelectCandidates("virtual://movie/tt1", candidates)
+	if len(got) != 1 {
+		t.Fatalf("candidates = %d, want 1 after collapsing per-file result IDs", len(got))
 	}
 }
 

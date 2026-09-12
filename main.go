@@ -274,10 +274,10 @@ func dropFailedCandidates(candidates []StreamCandidate) []StreamCandidate {
 // release re-offered with a different file list is still one release.
 //
 // Only when neither identity is available does it fall back to the release
-// name plus exact file size and quality profile. That tier collapses per-file
-// torrent variants (one candidate per contained file) while keeping genuinely
-// distinct releases apart. An empty key means the candidate carries too little
-// identity to collapse and is always kept.
+// name plus exact file size. That tier collapses per-file torrent variants
+// (one candidate per contained file, offered under different result IDs) while
+// keeping genuinely distinct releases apart. An empty key means the candidate
+// carries too little identity to collapse and is always kept.
 func candidateDedupKey(candidate StreamCandidate) string {
 	// Tier 1a: provider-supplied content hash.
 	if hash := strings.ToLower(strings.TrimSpace(candidate.BehaviorHints.VideoHash)); hash != "" {
@@ -287,8 +287,12 @@ func candidateDedupKey(candidate StreamCandidate) string {
 	if guid := strings.TrimSpace(candidate.SourceGUID); guid != "" {
 		return "guid:" + guid
 	}
-	// Tier 2: name + exact size + quality profile.
-	releaseKey := candidateReleaseName(candidate)
+	// Tier 2: release name + exact size. The quality profile is deliberately
+	// not part of the key: per-file variants of one release can parse
+	// different resolution/codec/HDR metadata from their differing result
+	// ids, and upstream treats a shared release name and size as sufficient
+	// to call them one release.
+	releaseKey := candidateDedupName(candidate)
 	if releaseKey == "" {
 		return ""
 	}
@@ -298,13 +302,60 @@ func candidateDedupKey(candidate StreamCandidate) string {
 	if candidate.FileSize > 0 {
 		sizeKey = strconv.FormatInt(candidate.FileSize, 10)
 	}
-	profileKey := strings.Join([]string{
-		normalizeResolution(candidate.Resolution),
-		strings.ToLower(strings.TrimSpace(candidate.CodecVideo)),
-		strings.ToLower(strings.TrimSpace(candidate.CodecAudio)),
-		strings.ToLower(strings.TrimSpace(candidate.HDR)),
-	}, "|")
-	return releaseKey + "\x00" + sizeKey + "\x00" + profileKey
+	return releaseKey + "\x00" + sizeKey
+}
+
+// candidateDedupName returns the release identity used for deduplication. It
+// prefers the provider's release-title line because behaviorHints.filename and
+// the URL name a single file inside a multi-file release: two files of one
+// torrent yield different filenames/result IDs and would otherwise escape the
+// name+size collapse. When only a per-file name is available, a trailing
+// numeric file index (the `<hash>-43` form) is stripped.
+func candidateDedupName(candidate StreamCandidate) string {
+	for _, value := range []string{
+		firstReleaseLine(candidate.Title),
+		firstReleaseLine(candidate.Name),
+	} {
+		if key := releaseNameKey(value); key != "" {
+			return key
+		}
+	}
+	for _, value := range []string{
+		candidate.BehaviorHints.Filename,
+		urlPathBase(candidate.URL),
+	} {
+		if key := releaseNameKey(trimPerFileIndex(value)); key != "" {
+			return key
+		}
+	}
+	return ""
+}
+
+// urlPathBase returns the last path segment of a stream URL, or "" when the
+// URL cannot be parsed.
+func urlPathBase(rawURL string) string {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return ""
+	}
+	return path.Base(parsed.Path)
+}
+
+// trimPerFileIndex drops a trailing `-<digits>` result/file index such as the
+// `-43` AltMount appends to per-file result IDs and filenames.
+func trimPerFileIndex(name string) string {
+	if idx := strings.LastIndexByte(name, '-'); idx > 0 {
+		suffix := name[idx+1:]
+		for _, ext := range []string{".mkv", ".mp4", ".avi", ".ts", ".m2ts", ".mov", ".webm"} {
+			suffix = strings.TrimSuffix(suffix, ext)
+		}
+		if suffix != "" {
+			if _, err := strconv.Atoi(suffix); err == nil {
+				return name[:idx]
+			}
+		}
+	}
+	return name
 }
 
 // dedupeCandidates collapses candidates that share a release identity, keeping
@@ -842,6 +893,18 @@ func (c *manifestStreamResolver) storeCandidateCache(key string, candidates []St
 	defer c.cacheMu.Unlock()
 	if c.cacheGeneration != generation {
 		return
+	}
+	if len(candidates) == 0 {
+		// The upstream provider flaps between a full list and an empty/stub
+		// answer. Letting the empty answer replace a still-servable positive
+		// entry starves playback for the whole negative TTL, so keep the
+		// positive entry (and its lastAccess) until it leaves stale grace, and
+		// only then install the negative. No usable positive means the
+		// negative is installed as before.
+		if previous, exists := c.cache[key]; exists && len(previous.candidates) > 0 &&
+			now.Before(previous.expiresAt.Add(candidateStaleGrace)) {
+			return
+		}
 	}
 	if c.cache == nil {
 		c.cache = make(map[string]candidateCacheEntry)
