@@ -225,6 +225,11 @@ func (c *manifestStreamResolver) SetCandidateClassifier(classifier candidateClas
 // still decides which confirmed release wins. Candidates reaching this point
 // already passed the profile and custom-format filters, so confirmation never
 // overrides an explicit reject.
+//
+// After classification the list is deduplicated: one torrent surfaces one
+// candidate per contained file, and those per-file variants share a release
+// identity. Collapsing them keeps the version list to one entry per playable
+// release; the confirmed variant wins its group when one exists.
 func (c *manifestStreamResolver) preferConfirmedCandidates(candidates []StreamCandidate) []StreamCandidate {
 	if len(candidates) == 0 {
 		return candidates
@@ -239,7 +244,87 @@ func (c *manifestStreamResolver) preferConfirmedCandidates(candidates []StreamCa
 	if classifier != nil {
 		classifier.ClassifyCandidates(candidates)
 	}
+	candidates = dropFailedCandidates(candidates)
+	candidates = dedupeCandidates(candidates)
 	return stablePartitionCandidates(candidates)
+}
+
+// dropFailedCandidates removes releases the source of truth reports as dead
+// before deduplication, so a dead variant can never shadow a live duplicate of
+// the same release.
+func dropFailedCandidates(candidates []StreamCandidate) []StreamCandidate {
+	kept := candidates[:0]
+	for _, candidate := range candidates {
+		if candidate.SourceFailed {
+			continue
+		}
+		kept = append(kept, candidate)
+	}
+	return kept
+}
+
+// candidateDedupKey returns the stable identity shared by provider candidates
+// that describe the same playable release. Multi-file torrents surface one
+// candidate per file, with result IDs differing only by an appended file
+// index; they share a normalized release name, file size, and quality profile.
+// An empty key means the candidate carries too little identity to collapse and
+// is always kept.
+func candidateDedupKey(candidate StreamCandidate) string {
+	releaseKey := candidateReleaseName(candidate)
+	if releaseKey == "" {
+		return ""
+	}
+	// True duplicates report identical byte sizes; distinct releases differ.
+	// Unknown sizes collapse only with other unknown sizes of the same name.
+	sizeKey := "0"
+	if candidate.FileSize > 0 {
+		sizeKey = strconv.FormatInt(candidate.FileSize, 10)
+	}
+	profileKey := strings.Join([]string{
+		normalizeResolution(candidate.Resolution),
+		strings.ToLower(strings.TrimSpace(candidate.CodecVideo)),
+		strings.ToLower(strings.TrimSpace(candidate.CodecAudio)),
+		strings.ToLower(strings.TrimSpace(candidate.HDR)),
+	}, "|")
+	return releaseKey + "\x00" + sizeKey + "\x00" + profileKey
+}
+
+// dedupeCandidates collapses candidates that share a release identity, keeping
+// the first-ranked variant of each group. When a group carries a confirmed
+// variant, that variant is the keeper regardless of rank: confirmation is
+// authoritative for the release, and the remaining variants differ only in
+// which file the provider selects server-side at stream time.
+func dedupeCandidates(candidates []StreamCandidate) []StreamCandidate {
+	if len(candidates) < 2 {
+		return candidates
+	}
+	keeper := make(map[string]int, len(candidates))
+	keep := make([]bool, len(candidates))
+	for i, candidate := range candidates {
+		key := candidateDedupKey(candidate)
+		if key == "" {
+			keep[i] = true
+			continue
+		}
+		existing, seen := keeper[key]
+		if !seen {
+			keeper[key] = i
+			keep[i] = true
+			continue
+		}
+		if candidate.SourceConfirmed && !candidates[existing].SourceConfirmed {
+			keep[existing] = false
+			keeper[key] = i
+			keep[i] = true
+		}
+	}
+	kept := candidates[:0]
+	for i := range candidates {
+		if keep[i] {
+			kept = append(kept, candidates[i])
+		}
+	}
+	return kept
 }
 
 // stablePartitionCandidates drops known-dead candidates and stably moves
